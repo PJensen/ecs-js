@@ -8,3 +8,6 @@ export * from './serialization.js';
 export * from './crossWorld.js';
 export * from './archetype.js';
 export * from './rng.js';
+export * from './scripts.js';
+export * from './scriptsPhasesExtra.js';
+export * from './adapters/scriptRouter.js';
