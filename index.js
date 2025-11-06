@@ -11,3 +11,4 @@ export * from './rng.js';
 export * from './scripts.js';
 export * from './scriptsPhasesExtra.js';
 export * from './adapters/scriptRouter.js';
+export * from './adapters/raf-adapters.js';
