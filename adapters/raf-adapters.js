@@ -90,7 +90,6 @@ function emitFrameEvent(listener, dt, stats, time, requestId) {
  * @param {Object} options
  * @param {import('../core.js').World} options.world - world instance to advance
  * @param {(dt:number)=>void} [options.stepFrame] - per-frame side effects (FX, cameras, HUD)
- * @param {(dt:number)=>void} [options.stepFx] - deprecated alias for stepFrame
  * @param {(stats:Object, dt?:number, timestamp?:number, requestId?:number)=>void} [options.render]
  * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.beforeFrame]
  * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.afterFrame]
@@ -108,7 +107,6 @@ export function createRealtimeRafLoop(options) {
     const {
         world,
         stepFrame: stepFrameOption,
-        stepFx,
         render = NOOP,
         beforeFrame,
         afterFrame,
@@ -126,7 +124,7 @@ export function createRealtimeRafLoop(options) {
     const worldStep = resolveWorldStep(world);
     const stepFrame = typeof stepFrameOption === 'function'
         ? stepFrameOption
-        : (typeof stepFx === 'function' ? stepFx : NOOP);
+        : NOOP;
 
     const { request: raf, cancel: caf, now: clock } = ensureRaf(request, cancel, now);
     const stats = createBaseStats();
@@ -226,7 +224,6 @@ export function createRealtimeRafLoop(options) {
  * @param {Object} options
  * @param {import('../core.js').World} options.world
  * @param {(dt:number)=>void} [options.stepFrame]
- * @param {(dt:number)=>void} [options.stepFx]
  * @param {(stats:Object, dt?:number, timestamp?:number, requestId?:number)=>void} [options.render]
  * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.beforeFrame]
  * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.afterFrame]
@@ -246,7 +243,6 @@ export function createDualLoopRafLoop(options) {
     const {
         world,
         stepFrame: stepFrameOption,
-        stepFx,
         render = NOOP,
         beforeFrame,
         afterFrame,
@@ -266,7 +262,7 @@ export function createDualLoopRafLoop(options) {
     const worldStep = resolveWorldStep(world);
     const stepFrame = typeof stepFrameOption === 'function'
         ? stepFrameOption
-        : (typeof stepFx === 'function' ? stepFx : NOOP);
+        : NOOP;
 
     const { request: raf, cancel: caf, now: clock } = ensureRaf(request, cancel, now);
     const stats = createBaseStats();
