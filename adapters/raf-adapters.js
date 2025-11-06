@@ -66,23 +66,36 @@ function updateFps(stats, dt, alpha) {
         : instFps;
 }
 
-function callOptional(fn, dt, stats) {
-    if (typeof fn === 'function') fn(dt, cloneStats(stats));
+function callOptional(fn, dt, stats, time, requestId) {
+    if (typeof fn === 'function') fn(dt, cloneStats(stats), time, requestId);
 }
 
 function notify(listener, stats) {
     if (typeof listener === 'function') listener(cloneStats(stats));
 }
 
+function emitFrameEvent(listener, dt, stats, time, requestId) {
+    if (typeof listener === 'function') {
+        listener({
+            timestamp: time,
+            dt,
+            requestId,
+            stats: cloneStats(stats),
+        });
+    }
+}
+
 /**
  * Create a RAF loop where render frames and simulation ticks advance together in real time.
  * @param {Object} options
  * @param {import('../core.js').World} options.world - world instance to advance
- * @param {(dt:number)=>void} [options.stepFx] - FX/display-only systems step callback
- * @param {(stats:Object)=>void} [options.render] - render callback invoked once per RAF frame
- * @param {(dt:number, stats:Object)=>void} [options.beforeFrame]
- * @param {(dt:number, stats:Object)=>void} [options.afterFrame]
+ * @param {(dt:number)=>void} [options.stepFrame] - per-frame side effects (FX, cameras, HUD)
+ * @param {(dt:number)=>void} [options.stepFx] - deprecated alias for stepFrame
+ * @param {(stats:Object, dt?:number, timestamp?:number, requestId?:number)=>void} [options.render]
+ * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.beforeFrame]
+ * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.afterFrame]
  * @param {(stats:Object)=>void} [options.onStats]
+ * @param {(frame:{timestamp:number, dt:number, requestId:number|null, stats:Object})=>void} [options.onAnimationFrame]
  * @param {number} [options.maxDt]
  * @param {number} [options.fpsAlpha]
  * @param {number} [options.fixedSimInterval]
@@ -94,11 +107,13 @@ function notify(listener, stats) {
 export function createRealtimeRafLoop(options) {
     const {
         world,
-        stepFx = NOOP,
+        stepFrame: stepFrameOption,
+        stepFx,
         render = NOOP,
         beforeFrame,
         afterFrame,
         onStats,
+        onAnimationFrame,
         maxDt = DEFAULT_MAX_DT,
         fpsAlpha = DEFAULT_FPS_ALPHA,
         fixedSimInterval = 0,
@@ -109,10 +124,14 @@ export function createRealtimeRafLoop(options) {
     } = options || {};
 
     const worldStep = resolveWorldStep(world);
+    const stepFrame = typeof stepFrameOption === 'function'
+        ? stepFrameOption
+        : (typeof stepFx === 'function' ? stepFx : NOOP);
 
     const { request: raf, cancel: caf, now: clock } = ensureRaf(request, cancel, now);
     const stats = createBaseStats();
     let statsListener = onStats;
+    let frameListener = onAnimationFrame;
     let rafHandle = null;
     let running = false;
     let lastTime = 0;
@@ -148,7 +167,7 @@ export function createRealtimeRafLoop(options) {
         stats.totalRafTime += dt;
         updateFps(stats, dt, fpsAlpha);
 
-        callOptional(beforeFrame, dt, stats);
+        callOptional(beforeFrame, dt, stats, time, rafHandle);
 
         if (fixedSimInterval && fixedSimInterval > 0) {
             simAccumulator += dt;
@@ -159,10 +178,11 @@ export function createRealtimeRafLoop(options) {
             stats.simLag = 0;
         }
 
-        stepFx(dt);
-        render(cloneStats(stats));
+        stepFrame(dt, cloneStats(stats), time, rafHandle);
+        render(cloneStats(stats), dt, time, rafHandle);
 
-        callOptional(afterFrame, dt, stats);
+        callOptional(afterFrame, dt, stats, time, rafHandle);
+        emitFrameEvent(frameListener, dt, stats, time, rafHandle);
         notify(statsListener, stats);
     }
 
@@ -196,6 +216,7 @@ export function createRealtimeRafLoop(options) {
         getStats: () => cloneStats(stats),
         resetStats,
         setStatsListener: (listener) => { statsListener = listener; },
+        setAnimationFrameListener: (listener) => { frameListener = listener; },
     };
 }
 
@@ -204,11 +225,13 @@ export function createRealtimeRafLoop(options) {
  * Simulation ticks are triggered explicitly via advanceSim() or queueSimStep().
  * @param {Object} options
  * @param {import('../core.js').World} options.world
+ * @param {(dt:number)=>void} [options.stepFrame]
  * @param {(dt:number)=>void} [options.stepFx]
- * @param {(stats:Object)=>void} [options.render]
- * @param {(dt:number, stats:Object)=>void} [options.beforeFrame]
- * @param {(dt:number, stats:Object)=>void} [options.afterFrame]
+ * @param {(stats:Object, dt?:number, timestamp?:number, requestId?:number)=>void} [options.render]
+ * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.beforeFrame]
+ * @param {(dt:number, stats:Object, timestamp?:number, requestId?:number)=>void} [options.afterFrame]
  * @param {(stats:Object)=>void} [options.onStats]
+ * @param {(frame:{timestamp:number, dt:number, requestId:number|null, stats:Object})=>void} [options.onAnimationFrame]
  * @param {number} [options.maxDt]
  * @param {number} [options.fpsAlpha]
  * @param {number} [options.fixedSimInterval]
@@ -222,11 +245,13 @@ export function createRealtimeRafLoop(options) {
 export function createDualLoopRafLoop(options) {
     const {
         world,
-        stepFx = NOOP,
+        stepFrame: stepFrameOption,
+        stepFx,
         render = NOOP,
         beforeFrame,
         afterFrame,
         onStats,
+        onAnimationFrame,
         maxDt = DEFAULT_MAX_DT,
         fpsAlpha = DEFAULT_FPS_ALPHA,
         fixedSimInterval = 0,
@@ -239,10 +264,14 @@ export function createDualLoopRafLoop(options) {
     } = options || {};
 
     const worldStep = resolveWorldStep(world);
+    const stepFrame = typeof stepFrameOption === 'function'
+        ? stepFrameOption
+        : (typeof stepFx === 'function' ? stepFx : NOOP);
 
     const { request: raf, cancel: caf, now: clock } = ensureRaf(request, cancel, now);
     const stats = createBaseStats();
     let statsListener = onStats;
+    let frameListener = onAnimationFrame;
     let rafHandle = null;
     let running = false;
     let fxPaused = false;
@@ -310,16 +339,17 @@ export function createDualLoopRafLoop(options) {
         stats.totalRafTime += dt;
         updateFps(stats, dt, fpsAlpha);
 
-        callOptional(beforeFrame, dt, stats);
+        callOptional(beforeFrame, dt, stats, time, rafHandle);
 
         if (!fxPaused) {
-            stepFx(dt);
+            stepFrame(dt, cloneStats(stats), time, rafHandle);
         }
 
         processQueuedSim();
-        render(cloneStats(stats));
+        render(cloneStats(stats), dt, time, rafHandle);
 
-        callOptional(afterFrame, dt, stats);
+        callOptional(afterFrame, dt, stats, time, rafHandle);
+        emitFrameEvent(frameListener, dt, stats, time, rafHandle);
         notify(statsListener, stats);
     }
 
@@ -383,6 +413,7 @@ export function createDualLoopRafLoop(options) {
         getStats: () => cloneStats(stats),
         resetStats,
         setStatsListener: (listener) => { statsListener = listener; },
+        setAnimationFrameListener: (listener) => { frameListener = listener; },
     };
 }
 
