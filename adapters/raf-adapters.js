@@ -28,6 +28,17 @@ function ensureRaf(request, cancel, now) {
     return { request: req, cancel: caf, now: clock };
 }
 
+function resolveWorldStep(world) {
+    if (!world || typeof world !== 'object') {
+        throw new TypeError('RAF adapters require a world instance');
+    }
+    const step = typeof world.step === 'function' ? world.step.bind(world) : null;
+    const tick = typeof world.tick === 'function' ? world.tick.bind(world) : null;
+    if (step) return step;
+    if (tick) return tick;
+    throw new TypeError('World instance must expose a step(dt) or tick(dt) method');
+}
+
 function createBaseStats() {
     return {
         rafFrame: 0,
@@ -64,9 +75,9 @@ function notify(listener, stats) {
 }
 
 /**
- * Create a RAF loop where render frames and simulation ticks advance in lockstep.
+ * Create a RAF loop where render frames and simulation ticks advance together in real time.
  * @param {Object} options
- * @param {(dt:number)=>void} options.stepSim - simulation step callback
+ * @param {import('../core.js').World} options.world - world instance to advance
  * @param {(dt:number)=>void} [options.stepFx] - FX/display-only systems step callback
  * @param {(stats:Object)=>void} [options.render] - render callback invoked once per RAF frame
  * @param {(dt:number, stats:Object)=>void} [options.beforeFrame]
@@ -80,9 +91,9 @@ function notify(listener, stats) {
  * @param {(handle:number)=>void} [options.cancel]
  * @param {()=>number} [options.now]
  */
-export function createLockstepRafLoop(options) {
+export function createRealtimeRafLoop(options) {
     const {
-        stepSim,
+        world,
         stepFx = NOOP,
         render = NOOP,
         beforeFrame,
@@ -97,9 +108,7 @@ export function createLockstepRafLoop(options) {
         now,
     } = options || {};
 
-    if (typeof stepSim !== 'function') {
-        throw new TypeError('createLockstepRafLoop requires a stepSim(dt) callback');
-    }
+    const worldStep = resolveWorldStep(world);
 
     const { request: raf, cancel: caf, now: clock } = ensureRaf(request, cancel, now);
     const stats = createBaseStats();
@@ -110,7 +119,7 @@ export function createLockstepRafLoop(options) {
     let simAccumulator = 0;
 
     function stepSimulation(dt) {
-        stepSim(dt);
+        worldStep(dt);
         stats.simTicks += 1;
         stats.simTime += dt;
         stats.lastSimDt = dt;
@@ -183,7 +192,7 @@ export function createLockstepRafLoop(options) {
         start,
         stop,
         isRunning: () => running,
-        stepSimImmediate: stepSimulation,
+        stepWorldImmediate: stepSimulation,
         getStats: () => cloneStats(stats),
         resetStats,
         setStatsListener: (listener) => { statsListener = listener; },
@@ -194,7 +203,7 @@ export function createLockstepRafLoop(options) {
  * Create a RAF loop where render cadence is decoupled from simulation advancement.
  * Simulation ticks are triggered explicitly via advanceSim() or queueSimStep().
  * @param {Object} options
- * @param {(dt:number)=>void} options.stepSim
+ * @param {import('../core.js').World} options.world
  * @param {(dt:number)=>void} [options.stepFx]
  * @param {(stats:Object)=>void} [options.render]
  * @param {(dt:number, stats:Object)=>void} [options.beforeFrame]
@@ -212,7 +221,7 @@ export function createLockstepRafLoop(options) {
  */
 export function createDualLoopRafLoop(options) {
     const {
-        stepSim,
+        world,
         stepFx = NOOP,
         render = NOOP,
         beforeFrame,
@@ -229,9 +238,7 @@ export function createDualLoopRafLoop(options) {
         now,
     } = options || {};
 
-    if (typeof stepSim !== 'function') {
-        throw new TypeError('createDualLoopRafLoop requires a stepSim(dt) callback');
-    }
+    const worldStep = resolveWorldStep(world);
 
     const { request: raf, cancel: caf, now: clock } = ensureRaf(request, cancel, now);
     const stats = createBaseStats();
@@ -249,7 +256,7 @@ export function createDualLoopRafLoop(options) {
     }
 
     function stepSimulation(dt) {
-        stepSim(dt);
+        worldStep(dt);
         stats.simTicks += 1;
         stats.simTime += dt;
         stats.lastSimDt = dt;
@@ -380,15 +387,15 @@ export function createDualLoopRafLoop(options) {
 }
 
 /**
- * Factory helper that chooses between lockstep and dual-loop RAF adapters.
- * @param {{ mode:'lockstep'|'dual-loop' } & Object} options
+ * Factory helper that chooses between realtime and dual-loop RAF adapters.
+ * @param {{ mode:'realtime'|'dual-loop' } & Object} options
  */
 export function createRafLoop(options) {
     if (!options || typeof options !== 'object') {
         throw new TypeError('createRafLoop(options) requires an options object with mode');
     }
     const { mode, ...rest } = options;
-    if (mode === 'lockstep') return createLockstepRafLoop(rest);
+    if (mode === 'realtime') return createRealtimeRafLoop(rest);
     if (mode === 'dual-loop') return createDualLoopRafLoop(rest);
     throw new Error(`Unknown RAF loop mode: ${mode}`);
 }
