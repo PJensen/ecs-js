@@ -14,7 +14,7 @@ export const PHASE_SCRIPTS = 'scripts';
  * Contract: factory(world, eid, args) => { onTick?, ...customHandlers }
  */
 export const ScriptRef = defineComponent('ScriptRef', { id: '', args: {} }, {
-    validate() { return typeof this.id === 'string'; }
+    validate(rec) { return typeof rec.id === 'string'; }
 });
 
 /**
@@ -45,7 +45,10 @@ function ScriptAttachSystem(world, dt) {
             _handlersByEntity.set(id, _sanitizeHandlers(f(world, id, sref.args || {})));
             if (world.has(id, ScriptMeta)) world.set(id, ScriptMeta, { lastError: '', version: world.step, invoked: 0 });
             else world.add(id, ScriptMeta, { lastError: '', invoked: 0, version: world.step });
-        } catch (e) { _noteErr(world, id, e); }
+        } catch (e) {
+            _handlersByEntity.delete(id);
+            _noteErr(world, id, e);
+        }
     }
 
     // Cleanup: drop handler tables for entities that no longer carry ScriptRef or are dead
@@ -68,7 +71,7 @@ function ScriptTickSystem(world, dt) {
 }
 
 // Bind systems to the built-in phase on module load
-registerSystem(ScriptAttachSystem, PHASE_SCRIPTS);
+registerSystem(ScriptAttachSystem, PHASE_SCRIPTS, { before: [ScriptTickSystem] });
 registerSystem(ScriptTickSystem, PHASE_SCRIPTS);
 
 // Public convenience API — attaches a scripting facet onto world instances
