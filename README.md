@@ -110,7 +110,7 @@ System order can be declared via `before` / `after` or pinned explicitly with `s
 
 ---
 
-🛰️ Events & Messaging
+🛰️ Events, Messaging, & Routing
 
 The world includes a built-in event bus for lightweight signaling between systems or external logic.
 
@@ -133,6 +133,17 @@ Events are synchronous and scoped per World.
 Each listener receives (payload, world) arguments.
 
 Useful for decoupling input handlers, UI triggers, or cross-system notifications.
+
+For large worlds, route events to specific entities via the script router adapter. Provide a route map that selects the entity IDs that should receive a handler call:
+
+```js
+export const EXAMPLE_ROUTES = {
+  use:     p => [p.targetId],
+  drop:    p => [p.itemId],
+};
+```
+
+`makeScriptRouter(routes)` wires each event name to a function that returns an array of entity IDs. When the event fires, any script handler named after the event (e.g. `use`, `drop`) runs on the matched entities. This keeps the global event bus efficient and expressive without manual lookup plumbing.
 
 ---
 
@@ -229,20 +240,17 @@ Deterministic, topologically sorted order between systems within each phase.
 
 ---
 
-## 🧰 Utilities Summary
+## 🎞️ RequestAnimationFrame Adapters
 
-| File                 | Purpose                                          |
-| -------------------- | ------------------------------------------------ |
-| **core.js**          | World, Components, Queries, Deferred ops         |
-| **systems.js**       | System registration, ordering, composition       |
-| **hierarchy.js**     | Parent–child tree operations                     |
-| **serialization.js** | Snapshot, registry, deserialization              |
-| **crossWorld.js**    | Entity linking across worlds                     |
-| **archetype.js**     | Prefab-style archetypes and reusable spawn logic |
-| **rng.js**           | Seeded RNG utilities (mulberry32, helpers)       |
-| **scripts.js**       | First-class scripting (ScriptRef, ScriptMeta, phase) |
-| **scriptsPhasesExtra.js** | Optional extra script phases and per-entity phase control |
-| **adapters/scriptRouter.js** | Route world events to script handlers         |
+`adapters/raf-adapters.js` ships canonical loops for browser integrations:
+
+* `createRealtimeRafLoop(options)` — advances simulation and presentation together, optionally clamping `dt`, smoothing FPS, and supporting fixed-step accumulators.
+* `createDualLoopRafLoop(options)` — decouples rendering from simulation; queue or advance sim time manually while RAF drives the view layer.
+* `createRafLoop({ mode: 'realtime' | 'dual-loop', ... })` — convenience factory that chooses between the two.
+
+Both adapters accept `request`, `cancel`, and `now` overrides (for tests or custom hosts), surface immutable stats via `getStats()`, and expose lifecycle hooks (`beforeFrame`, `afterFrame`, `onAnimationFrame`, `onStats`). Each adapter returns a controller with `start()`, `stop()`, and helpers such as `advanceSim()`, `queueSimStep()`, and `resetStats()`.
+
+Use them when you want a declarative RAF loop without rebuilding state tracking or worrying about accumulator drift. The manual example below remains for developers who prefer bespoke wiring.
 
 ---
 
@@ -482,6 +490,24 @@ directly in the browser:
 ```html
 <script type="module" src="ecs/core.js"></script>
 ```
+
+---
+
+## 📚 Module Reference
+
+| File                      | Purpose                                                   |
+| ------------------------- | --------------------------------------------------------- |
+| **core.js**               | World, Components, Queries, Deferred ops                  |
+| **systems.js**            | System registration, ordering, composition                |
+| **hierarchy.js**          | Parent–child tree operations                              |
+| **serialization.js**      | Snapshot, registry, deserialization                       |
+| **crossWorld.js**         | Entity linking across worlds                              |
+| **archetype.js**          | Prefab-style archetypes and reusable spawn logic          |
+| **rng.js**                | Seeded RNG utilities (mulberry32, helpers)                |
+| **scripts.js**            | First-class scripting (ScriptRef, ScriptMeta, phase)      |
+| **scriptsPhasesExtra.js** | Optional extra script phases and per-entity phase control |
+| **adapters/raf-adapters.js** | requestAnimationFrame loop helpers (realtime & dual-loop) |
+| **adapters/scriptRouter.js** | Route world events to script handlers                    |
 
 ---
 
