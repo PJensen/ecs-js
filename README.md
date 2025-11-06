@@ -240,6 +240,9 @@ Deterministic, topologically sorted order between systems within each phase.
 | **crossWorld.js**    | Entity linking across worlds                     |
 | **archetype.js**     | Prefab-style archetypes and reusable spawn logic |
 | **rng.js**           | Seeded RNG utilities (mulberry32, helpers)       |
+| **scripts.js**       | First-class scripting (ScriptRef, ScriptMeta, phase) |
+| **scriptsPhasesExtra.js** | Optional extra script phases and per-entity phase control |
+| **adapters/scriptRouter.js** | Route world events to script handlers         |
 
 ---
 
@@ -351,6 +354,112 @@ function downloadJSON(obj, filename = 'world-snapshot.json') {
 
 // Trigger save
 downloadJSON(snapshot)
+```
+
+---
+
+## 🎛️ Scripting (First-class)
+
+Add behavior to entities by attaching a ScriptRef that resolves to a small handler table. Core provides a default "scripts" phase and helpers for error reporting and optional extra phases.
+
+### Quick start
+
+```js
+import { World } from './core.js'
+import { registerSystem, composeScheduler } from './systems.js'
+import { installScriptsAPI, ScriptRef, ScriptMeta, PHASE_SCRIPTS } from './scripts.js'
+
+const world = installScriptsAPI(new World({ seed: 42 }))
+
+// Register a script factory under an id
+world.scripts.register('pulse', (world, eid, args) => {
+  let t = 0
+  return {
+    onTick(w, id, dt, ctx) {
+      t += dt
+      if (t >= (args.period ?? 1)) {
+        t = 0
+        ctx.emit('pulse', { id, at: w.step })
+      }
+    },
+    // You can add custom event-named handlers as well, e.g. on damage events
+    damage(w, id, payload, ctx) { /* ... */ }
+  }
+})
+
+// Create an entity and attach the script
+const e = world.create()
+world.add(e, ScriptRef, { id: 'pulse', args: { period: 3 } })
+
+// Schedule the built-in scripts phase (you can mix with your other phases)
+world.setScheduler(composeScheduler(PHASE_SCRIPTS))
+
+world.on('pulse', p => console.log('PULSE', p))
+world.tick(1); world.tick(1); world.tick(1) // emits once at step 3
+
+// Diagnostics (last thrown error, count of ticks, attach version)
+console.log(world.get(e, ScriptMeta))
+```
+
+Behavior contract: a script factory receives `(world, eid, args)` and returns an object whose function values are handlers. Special name `onTick` is called each scripts phase; other names can be invoked via the event router (see below).
+
+Errors thrown by handlers are captured into `ScriptMeta.lastError`. Re-attaching a script (changing `ScriptRef`) resets `invoked` and updates `version` to `world.step`.
+
+Handler tables are automatically cleaned up when an entity is destroyed or loses `ScriptRef`.
+
+### Optional extra phases
+
+You can define additional script phases and/or per-entity phase selection.
+
+```js
+import { addScriptTickPhase, ScriptPhase } from './scriptsPhasesExtra.js'
+import { composeScheduler } from './systems.js'
+
+// Add early/late phases that call optional hooks on handlers
+addScriptTickPhase('scripts:early', 'onTickEarly')
+addScriptTickPhase('scripts:late',  'onTickLate')
+
+// Use them in your scheduler
+world.setScheduler(composeScheduler('scripts:early', PHASE_SCRIPTS, 'scripts:late'))
+
+// Per-entity: select which phase a script should tick in
+world.add(e, ScriptPhase, { tick: 'scripts:early' })
+```
+
+Exceptions in extra phases are also recorded in `ScriptMeta.lastError`.
+
+### Routing world events to handlers
+
+Use the adapter to forward world events to handler functions named after the event.
+
+```js
+import { makeScriptRouter } from './adapters/scriptRouter.js'
+
+// Route map: event name → function that returns target entity ids
+const wire = makeScriptRouter({
+  moved: (payload) => [payload.id],   // notify the moving entity
+  damage: ({ targetId }) => [targetId]
+})
+
+wire(world) // registers listeners
+
+// In your script factory, define functions named after events you care about:
+world.scripts.register('reactive', () => ({
+  damage(w, id, payload, ctx) {
+    ctx.emit('log', { id, text: `took ${payload.amount}` })
+  }
+}))
+```
+
+If a routed handler throws, the error is recorded into `ScriptMeta.lastError` for that entity.
+
+### Import paths
+
+When used as a submodule, import directly from these files (as shown above) or from the barrel for convenience:
+
+```js
+// Barrel re-exports
+import { installScriptsAPI, PHASE_SCRIPTS, addScriptTickPhase, makeScriptRouter } from './index.js'
 ```
 
 ---
