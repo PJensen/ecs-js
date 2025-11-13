@@ -29,6 +29,9 @@ Suitable for both discrete-event and real-time updates.
 **Pure logic**
  No rendering or timing assumptions — plug into any UI, engine, or visualization layer.
 
+**Ergonomic helpers**
+ Optional builders (`World.create`, `world.script`, entity handles) keep advanced setups terse without hiding the underlying primitives.
+
 ---
 
 ## 🧩 Core Concepts
@@ -42,6 +45,23 @@ const world = new World({ seed: 12345, store: 'map' })
 
 A `World` manages all entities, components, and systems.
 Each call to `world.tick(dt)` advances the simulation deterministically by one step.
+
+When you need to wire multiple phases, installers, or strict/debug tooling, reach for the fluent builder:
+
+```js
+import { World, PHASE_SCRIPTS } from 'ecs-js/index.js'
+
+const world = World.create({ seed: 9 })
+  .useSoA()
+  .system(moveSystem, 'update')
+  .withPhases('update', PHASE_SCRIPTS)   // ensure scheduler covers required phases
+  .useScripts({ phase: PHASE_SCRIPTS })  // auto-install ScriptRef systems
+  .withScheduler('update', PHASE_SCRIPTS)
+  .onStrictError(ctx => ctx.defer())     // optional strict-mode policy
+  .build()
+```
+
+`World.create()` collects options, systems, installers, and scheduler steps before producing a world. Mix and match `.useMap()/.useSoA()`, `.withSchedulerFn(fn)`, `.install(world => { ... })`, and `.withLogger(console)` to keep setup declarative. You can still register systems later via `world.system(fn, 'phase')`.
 
 ---
 
@@ -57,6 +77,19 @@ export const Visible  = defineTag('Visible')
 
 Components are pure data containers.
 Tags are zero-data markers for boolean traits or group membership.
+
+Prefer the fluent builder when you want validation or want to flip between data components and tags without changing call sites:
+
+```js
+import { Component } from 'ecs-js/core.js'
+
+export const Velocity = Component('Velocity')
+  .defaults({ dx: 0, dy: 0 })
+  .validate(v => Number.isFinite(v.dx) && Number.isFinite(v.dy))
+  .build()
+
+export const Visible = Component('Visible').tag()
+```
 
 ---
 
@@ -108,6 +141,27 @@ world.tick(1)
 Each phase name is arbitrary — you decide the lifecycle.
 System order can be declared via `before` / `after` or pinned explicitly with `setSystemOrder`.
 
+You can also skip the globals entirely and register straight off a world:
+
+```js
+world.system(moveSystem, 'update')   // internally pipes to registerSystem
+```
+
+For larger setups, use the fluent registry to keep dependency declarations next to the systems they affect:
+
+```js
+import { Systems } from 'ecs-js/systems.js'
+
+Systems.phase('update')
+  .add(moveSystem)
+  .add(applyIntentSystem).after(moveSystem)
+  .order(moveSystem, applyIntentSystem)
+
+console.log(Systems.visualizeGraph({ phase: 'update' })) // DOT graph for quick sanity checks
+```
+
+`composeScheduler` happily mixes phase names and inline functions. The builder variant (`World.create().withScheduler(...)`) simply pre-populates those same steps before the world is built.
+
 ---
 
 🛰️ Events, Messaging, & Routing
@@ -144,6 +198,33 @@ export const EXAMPLE_ROUTES = {
 ```
 
 `makeScriptRouter(routes)` wires each event name to a function that returns an array of entity IDs. When the event fires, any script handler named after the event (e.g. `use`, `drop`) runs on the matched entities. This keeps the global event bus efficient and expressive without manual lookup plumbing.
+
+---
+
+## 🛠️ Debugging & Profiling
+
+Every world ships with a `debug` facade. Opt in with `{ debug: true }` or toggle later via `world.enableDebug(true)`, then cherry-pick the tooling you need:
+
+```js
+const world = new World({ debug: true })
+
+world.debug.enableProfiling()
+world.debug.onProfile(({ total, phases, systems }) => {
+  console.table(phases)
+})
+
+const snapshot = world.debug.inspect(entityId)
+console.log(snapshot.components.Position.diff) // per-component change info
+```
+
+Highlights:
+
+- `debug.inspect(id)` stores the latest snapshot and diff per component so you can trace what changed across ticks. Call `debug.forget(id)` to drop history.
+- `debug.enableProfiling()` plus `debug.onProfile(fn)` stream per-system timings after each tick. The last report is available via `debug.lastProfile`.
+- `debug.useTimeSource(fn)` swaps the clock used for profiling (handy for deterministic tests).
+- `debug.clearProfiles()` and `debug.enable(false)` keep instrumentation overhead out of release builds.
+
+All hooks are no-ops when debug mode is disabled, so you can leave the wiring in development code.
 
 ---
 
@@ -415,6 +496,41 @@ world.tick(1); world.tick(1); world.tick(1) // emits once at step 3
 console.log(world.get(e, ScriptMeta))
 ```
 
+### Fluent script registration & helpers
+
+Wrap your script definitions in `world.script(id, configure)` to get builder-style ergonomics:
+
+```js
+world
+  .script('pulse', (helper, _world, _eid, args) => {
+    let elapsed = 0
+    return helper
+      .onTick((w, id, dt, ctx) => {
+        elapsed += dt
+        if (elapsed >= (args.period ?? 1)) {
+          elapsed = 0
+          ctx.emit('pulse', { id, at: w.step })
+        }
+      })
+      .damage((w, id, payload, ctx) => ctx.emit('log', { id, text: `took ${payload.amount}` }))
+  })
+  .script('logger', {
+    onTick(w, id, dt, ctx) { /* object literals work too */ }
+  })
+
+world.addScript(e, 'pulse', { period: 0.5 })
+world.entity(e).addScript('logger')     // fluent entity handle
+world.removeScript(e)                   // or world.entity(e).removeScript()
+```
+
+The helper exposes:
+
+- `helper.on(name, fn)` or `helper.someHook(fn)` for named handlers (`onTick`, custom events, etc.).
+- `helper.use(factoryOrHandlers)` to compose other handler tables.
+- Access to `helper.world`, `helper.entity`, and `helper.args` so you can stash local state.
+
+`world.scripts.handlersOf(eid)` returns the sanitized handler table, `.refresh()` forces reattachment (useful after hot reloads), and `.clear()` resets the registry between tests. All helpers return the world so you can chain registrations inline with your setup.
+
 Behavior contract: a script factory receives `(world, eid, args)` and returns an object whose function values are handlers. Special name `onTick` is called each scripts phase; other names can be invoked via the event router (see below).
 
 Errors thrown by handlers are captured into `ScriptMeta.lastError`. Re-attaching a script (changing `ScriptRef`) resets `invoked` and updates `version` to `world.step`.
@@ -503,14 +619,14 @@ directly in the browser:
 
 | File                      | Purpose                                                   |
 | ------------------------- | --------------------------------------------------------- |
-| **core.js**               | World, Components, Queries, Deferred ops                  |
-| **systems.js**            | System registration, ordering, composition                |
+| **core.js**               | World + builder, debug/logging, components, queries       |
+| **systems.js**            | System registry, fluent phase builder, composition        |
 | **hierarchy.js**          | Parent–child tree operations                              |
 | **serialization.js**      | Snapshot, registry, deserialization                       |
 | **crossWorld.js**         | Entity linking across worlds                              |
 | **archetype.js**          | Prefab-style archetypes and reusable spawn logic          |
 | **rng.js**                | Seeded RNG utilities (mulberry32, helpers)                |
-| **scripts.js**            | First-class scripting (ScriptRef, ScriptMeta, phase)      |
+| **scripts.js**            | First-class scripting (ScriptRef, ScriptMeta, fluent APIs)|
 | **scriptsPhasesExtra.js** | Optional extra script phases and per-entity phase control |
 | **adapters/raf-adapters.js** | requestAnimationFrame loop helpers (realtime & dual-loop) |
 | **adapters/scriptRouter.js** | Route world events to script handlers                    |
