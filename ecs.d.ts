@@ -16,6 +16,7 @@ export interface WorldOptions {
   store?: StoreMode;
   strict?: boolean;
   debug?: boolean;
+  profile?: boolean;
   onTick?: (duration: number, world: World) => void;
   logger?: LoggerLike | null;
 }
@@ -97,6 +98,16 @@ export interface WorldDebugProfilePayload {
   phases: WorldDebugProfilePhase[];
 }
 
+export interface WorldProfiler {
+  enable(on?: boolean): this;
+  isProfiling(): boolean;
+  useTimeSource(fn: () => number): this;
+  now(): number;
+  onProfile(fn: (profile: WorldDebugProfilePayload, world: World) => void): () => void;
+  clearProfiles(): this;
+  lastProfile: WorldDebugProfilePayload | null;
+}
+
 export interface WorldDebug {
   enable(on?: boolean): this;
   useTimeSource(fn: () => number): this;
@@ -116,6 +127,7 @@ export class World {
 
   logger: Logger;
   debug: WorldDebug;
+  profiler: WorldProfiler;
   scheduler: ((world: World, dt: number) => void) | null;
   seed: number;
   rand: () => number;

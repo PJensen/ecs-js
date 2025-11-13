@@ -91,3 +91,23 @@ test('world.debug profiling captures per-system timings', (t) => {
 
   off();
 });
+
+test('profiling continues even when debug is disabled', (t) => {
+  clearSystems();
+  t.after(() => clearSystems());
+
+  function stepper() {}
+  registerSystem(stepper, 'only');
+
+  const world = new World({ debug: true });
+  world.debug.enableProfiling(true);
+  world.setScheduler(composeScheduler('only'));
+
+  world.tick(1);
+  const firstProfile = world.debug.lastProfile;
+  assert.ok(firstProfile, 'profiling should run while debug enabled');
+
+  world.enableDebug(false);
+  world.tick(1);
+  assert.notEqual(world.debug.lastProfile, firstProfile, 'profiling should continue regardless of debug toggle');
+});

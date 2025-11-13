@@ -82,19 +82,19 @@ export function getOrderedSystems(phase) {
  */
 export function runSystems(phase, world, dt) {
   const list = getOrderedSystems(phase);
-  const debug = world?.debug;
   const logger = (world && world.logger) ? world.logger : defaultLogger;
-  const shouldProfile = !!(debug && typeof debug.isProfiling === 'function' && debug.isProfiling());
+  const profiler = world?.profiler;
+  const shouldProfile = !!(profiler && typeof profiler.isProfiling === 'function' && profiler.isProfiling());
   for (let i = 0; i < list.length; i++) {
     const fn = list[i];
     let start = 0;
-    if (shouldProfile) start = debug.now();
+    if (shouldProfile) start = profiler.now();
     try { fn(world, dt); }
     catch (e) { logger.error(`[systems] error in phase "${phase}"`, e); }
     finally {
       if (shouldProfile) {
-        const end = debug.now();
-        debug._recordSystem(phase, fn, end - start);
+        const end = profiler.now();
+        profiler.recordSystem(phase, fn, end - start);
       }
     }
   }

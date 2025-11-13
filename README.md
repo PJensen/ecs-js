@@ -222,11 +222,11 @@ console.log(snapshot.components.Position.diff) // per-component change info
 Highlights:
 
 - `debug.inspect(id)` stores the latest snapshot and diff per component so you can trace what changed across ticks. Call `debug.forget(id)` to drop history.
-- `debug.enableProfiling()` plus `debug.onProfile(fn)` stream per-system timings after each tick. The last report is available via `debug.lastProfile`.
-- `debug.useTimeSource(fn)` swaps the clock used for profiling (handy for deterministic tests).
-- `debug.clearProfiles()` and `debug.enable(false)` keep instrumentation overhead out of release builds.
+- `debug.enableProfiling()` (or `world.profiler.enable(true)`) plus `debug.onProfile(fn)` stream per-system timings after each tick. The last report is available via `debug.lastProfile`.
+- `debug.useTimeSource(fn)` swaps the clock used for profiling (handy for deterministic tests); it feeds the underlying profiler, which runs independently of the debug flag.
+- `debug.clearProfiles()` and `world.profiler.enable(false)` keep instrumentation overhead out of release builds.
 
-All hooks are no-ops when debug mode is disabled, so you can leave the wiring in development code.
+Inspection hooks are no-ops when debug mode is disabled, while profiling can remain enabled independently for telemetry.
 
 ---
 

@@ -62,45 +62,27 @@ class WorldDebug {
     this.world = world;
     this.enabled = !!world?._debug;
     this._history = new Map(); // Map<entityId, Map<compKey, snapshot>>
-    this._profilingEnabled = false;
-    this._profileHandlers = new Set();
-    this._currentProfile = null;
-    this.lastProfile = null;
-    this._timeSource = now;
+    Object.defineProperty(this, 'lastProfile', {
+      get: () => this.world?.profiler?.lastProfile ?? null,
+      set: (value) => {
+        if (this.world?.profiler) this.world.profiler.lastProfile = value;
+      }
+    });
   }
 
   enable(on = true) { this.enabled = !!on; return this; }
 
-  useTimeSource(fn) {
-    if (typeof fn !== 'function') throw new Error('world.debug.useTimeSource expects a function');
-    this._timeSource = fn;
-    return this;
+  _profiler() {
+    if (!this.world?.profiler) throw new Error('world.profiler unavailable');
+    return this.world.profiler;
   }
 
-  now() {
-    return this._timeSource();
-  }
-
-  enableProfiling(on = true) {
-    this._profilingEnabled = !!on;
-    return this;
-  }
-
-  isProfiling() {
-    return this._profilingEnabled || this._profileHandlers.size > 0;
-  }
-
-  onProfile(fn) {
-    if (typeof fn !== 'function') throw new Error('world.debug.onProfile expects a function');
-    this._profileHandlers.add(fn);
-    return () => this._profileHandlers.delete(fn);
-  }
-
-  clearProfiles() {
-    this.lastProfile = null;
-    this._currentProfile = null;
-    return this;
-  }
+  useTimeSource(fn) { this._profiler().useTimeSource(fn); return this; }
+  now() { return this._profiler().now(); }
+  enableProfiling(on = true) { this._profiler().enable(on); return this; }
+  isProfiling() { return this._profiler().isProfiling(); }
+  onProfile(fn) { return this._profiler().onProfile(fn); }
+  clearProfiles() { this._profiler().clearProfiles(); return this; }
 
   inspect(id) {
     const world = this.world;
@@ -140,43 +122,6 @@ class WorldDebug {
     return this;
   }
 
-  _beginTick() {
-    if (!this.isProfiling()) {
-      this._currentProfile = null;
-      return;
-    }
-    this._currentProfile = { systems: [], phaseTotals: new Map() };
-  }
-
-  _recordSystem(phase, system, duration) {
-    if (!this._currentProfile) return;
-    const entry = {
-      phase,
-      system,
-      name: typeof system?.name === 'string' && system.name.length ? system.name : '(anonymous)',
-      duration,
-    };
-    this._currentProfile.systems.push(entry);
-    const prev = this._currentProfile.phaseTotals.get(phase) || 0;
-    this._currentProfile.phaseTotals.set(phase, prev + duration);
-  }
-
-  _endTick(total, dt) {
-    if (!this._currentProfile) return;
-    const phases = Array.from(this._currentProfile.phaseTotals, ([phase, duration]) => ({ phase, duration }));
-    const payload = {
-      total,
-      dt,
-      systems: this._currentProfile.systems.slice(),
-      phases,
-    };
-    this.lastProfile = payload;
-    for (const handler of this._profileHandlers) {
-      try { handler(payload, this.world); }
-      catch (e) { this.world.logger.warn('[ecs] profile handler error', e); }
-    }
-    this._currentProfile = null;
-  }
 }
 
 /**
@@ -282,6 +227,8 @@ export class World {
     this.time = 0;
     this.step = 0;
 
+    this.profiler = new WorldProfiler(this);
+    if (opts.profile) this.profiler.enable(true);
     this.debug = new WorldDebug(this);
     this.debug.enable(this._debug);
   }
@@ -325,7 +272,7 @@ export class World {
     this.time += dt;
     this.step++;
     this._inTick = true;
-    this.debug._beginTick();
+    this.profiler.beginTick();
 
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     try { this.scheduler(this, dt); }
@@ -348,7 +295,7 @@ export class World {
     this._inTick = false;
 
     const took = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
-    this.debug._endTick(took, dt);
+    this.profiler.endTick(took, dt);
     if (typeof this.onTick === 'function') { try { this.onTick(took, this); } catch (e) { this.logger.error('[ecs] onTick error', e); } }
   }
 
@@ -783,6 +730,87 @@ export class World {
     this._debug = !!on;
     if (this.debug) this.debug.enable(this._debug);
     return this;
+  }
+}
+
+class WorldProfiler {
+  constructor(world) {
+    this.world = world;
+    this.enabled = false;
+    this._timeSource = now;
+    this._profileHandlers = new Set();
+    this._currentProfile = null;
+    this.lastProfile = null;
+  }
+
+  enable(on = true) {
+    this.enabled = !!on;
+    if (!this.enabled) this._currentProfile = null;
+    return this;
+  }
+
+  isProfiling() {
+    return this.enabled || this._profileHandlers.size > 0;
+  }
+
+  useTimeSource(fn) {
+    if (typeof fn !== 'function') throw new Error('world.profiler.useTimeSource expects a function');
+    this._timeSource = fn;
+    return this;
+  }
+
+  now() {
+    return this._timeSource();
+  }
+
+  onProfile(fn) {
+    if (typeof fn !== 'function') throw new Error('world.profiler.onProfile expects a function');
+    this._profileHandlers.add(fn);
+    return () => this._profileHandlers.delete(fn);
+  }
+
+  clearProfiles() {
+    this.lastProfile = null;
+    this._currentProfile = null;
+    return this;
+  }
+
+  beginTick() {
+    if (!this.isProfiling()) {
+      this._currentProfile = null;
+      return;
+    }
+    this._currentProfile = { systems: [], phaseTotals: new Map() };
+  }
+
+  recordSystem(phase, system, duration) {
+    if (!this._currentProfile) return;
+    const entry = {
+      phase,
+      system,
+      name: typeof system?.name === 'string' && system.name.length ? system.name : '(anonymous)',
+      duration,
+    };
+    this._currentProfile.systems.push(entry);
+    const prev = this._currentProfile.phaseTotals.get(phase) || 0;
+    this._currentProfile.phaseTotals.set(phase, prev + duration);
+  }
+
+  endTick(total, dt) {
+    if (!this._currentProfile) return;
+    const phases = Array.from(this._currentProfile.phaseTotals, ([phase, duration]) => ({ phase, duration }));
+    const payload = {
+      total,
+      dt,
+      systems: this._currentProfile.systems.slice(),
+      phases,
+    };
+    this.lastProfile = payload;
+    for (const handler of this._profileHandlers) {
+      try { handler(payload, this.world); }
+      catch (e) { this.world.logger.warn('[ecs] profile handler error', e); }
+    }
+    this._currentProfile = null;
   }
 }
 
