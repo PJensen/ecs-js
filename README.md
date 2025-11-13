@@ -63,6 +63,8 @@ const world = World.create({ seed: 9 })
 
 `World.create()` collects options, systems, installers, and scheduler steps before producing a world. Mix and match `.useMap()/.useSoA()`, `.withSchedulerFn(fn)`, `.install(world => { ... })`, and `.withLogger(console)` to keep setup declarative. You can still register systems later via `world.system(fn, 'phase')`.
 
+`useScripts({ phase: 'update' })` lets you co-locate the built-in script systems inside an existing phase; omit the option to leave them under the default `scripts` phase.
+
 ---
 
 ### Components

@@ -36,6 +36,16 @@ function _ctx(world, id) { return { rand: world.rand, emit: (ev, p) => world.emi
 function _noteErr(world, id, e) { const msg = (e && e.stack) ? e.stack : String(e); world.has(id, ScriptMeta) ? world.set(id, ScriptMeta, { lastError: msg }) : world.add(id, ScriptMeta, { lastError: msg }); }
 function _bump(world, id) { if (world.has(id, ScriptMeta)) world.mutate(id, ScriptMeta, m => { m.invoked++; }); }
 
+function _ensureScriptPhase(phase) {
+    const systems = Systems.list(phase);
+    if (!systems.includes(ScriptAttachSystem)) {
+        registerSystem(ScriptAttachSystem, phase, { before: [ScriptTickSystem] });
+    }
+    if (!systems.includes(ScriptTickSystem)) {
+        registerSystem(ScriptTickSystem, phase);
+    }
+}
+
 function _makeHelper(world, eid, args) {
     const handlers = {};
     const bag = {
@@ -127,18 +137,12 @@ function ScriptTickSystem(world, dt) {
 }
 
 // Bind systems to the built-in phase on module load
-registerSystem(ScriptAttachSystem, PHASE_SCRIPTS, { before: [ScriptTickSystem] });
-registerSystem(ScriptTickSystem, PHASE_SCRIPTS);
+_ensureScriptPhase(PHASE_SCRIPTS);
 
 // Public convenience API — attaches a scripting facet onto world instances
-export function installScriptsAPI(world) {
-    const registered = Systems.list(PHASE_SCRIPTS);
-    if (!registered.includes(ScriptAttachSystem)) {
-        registerSystem(ScriptAttachSystem, PHASE_SCRIPTS, { before: [ScriptTickSystem] });
-    }
-    if (!registered.includes(ScriptTickSystem)) {
-        registerSystem(ScriptTickSystem, PHASE_SCRIPTS);
-    }
+export function installScriptsAPI(world, options = {}) {
+    const phase = options.phase || PHASE_SCRIPTS;
+    _ensureScriptPhase(phase);
     world.scripts = {
         /** Register a script factory under a string id. */
         register(id, factory) { _registry.set(String(id), factory); },

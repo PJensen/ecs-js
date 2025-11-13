@@ -41,3 +41,23 @@ test('world.script helpers register handlers and entity sugar attaches scripts',
   world.entity(eid).removeScript();
   assert.equal(world.has(eid, ScriptRef), false);
 });
+
+test('useScripts installs systems into a custom phase', () => {
+  const world = World.create()
+    .useScripts({ phase: 'update' })
+    .withScheduler('update')
+    .build();
+
+  let ticks = 0;
+  world.script('CustomPhaseScript', {
+    onTick() { ticks++; }
+  });
+
+  const eid = world.create();
+  world.addScript(eid, 'CustomPhaseScript');
+  world.tick(0.016);
+
+  assert.equal(ticks, 1);
+  const meta = world.get(eid, ScriptMeta);
+  assert.ok(meta);
+});

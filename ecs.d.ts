@@ -50,15 +50,15 @@ export interface ComponentBuilder<T extends Record<string, any>> {
 
 export function Component<T extends Record<string, any> = any>(name: string): ComponentBuilder<T>;
 
-export interface QueryResult<T extends any[]> extends Iterable<T> {
-  run(fn: (...value: T) => void): World;
+export interface QueryResult<T> extends Iterable<T> {
+  run(fn: T extends any[] ? (...value: T) => void : (value: T) => void): World;
   count(options?: { cheap?: boolean }): number;
 }
 
-export interface QueryHandle<T extends any[]> {
+export interface QueryHandle<T = any> {
   (): QueryResult<T>;
   where(predicate: (...args: any[]) => boolean): QueryHandle<T>;
-  project(...fields: any[]): QueryHandle<any[]>;
+  project<R>(projector: (...args: any[]) => R): QueryHandle<R>;
   orderBy(comparator: (...args: any[]) => number): QueryHandle<T>;
   offset(value: number): QueryHandle<T>;
   limit(value: number): QueryHandle<T>;
@@ -132,7 +132,7 @@ export class World {
   destroy(id: number): boolean | null;
   isAlive(id: number): boolean;
 
-  add<T>(id: number, component: Component<T>, values?: Partial<T>): number;
+  add<T>(id: number, component: Component<T>, values?: Partial<T>): T | null;
   set<T>(id: number, component: Component<T>, patch: Partial<T>): T | null;
   mutate<T>(id: number, component: Component<T>, fn: (value: T) => void): T | null;
   get<T>(id: number, component: Component<T>): T | null;
@@ -331,7 +331,11 @@ export interface ScriptEntityHandle {
   script(): { id: string; args: any } | null;
 }
 
-export function installScriptsAPI(world: World): World;
+export interface ScriptsInstallerOptions {
+  phase?: string;
+}
+
+export function installScriptsAPI(world: World, options?: ScriptsInstallerOptions): World;
 
 export interface RafLoopStats {
   rafFrame: number;

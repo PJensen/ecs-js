@@ -825,10 +825,11 @@ export class WorldBuilder {
   }
   onStrictError(fn) { this._strictHandlers.push(fn); return this; }
   useScripts(options = {}) {
-    const installer = (world) => installScriptsAPI(world);
+    const scriptOptions = { ...(options || {}) };
+    const installer = (world) => installScriptsAPI(world, scriptOptions);
     this._installers.push(installer);
-    if (options.autoPhase !== false) {
-      const phase = options.phase || PHASE_SCRIPTS;
+    if (scriptOptions.autoPhase !== false) {
+      const phase = scriptOptions.phase || PHASE_SCRIPTS;
       this.withPhases(phase);
     }
     return this;
