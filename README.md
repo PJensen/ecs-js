@@ -184,7 +184,7 @@ Works seamlessly with `world.isAlive(id)` (O(1) Set check).
 Prefab-style entity definitions for repeatable or composite setups.
 
 ```js
-import { defineArchetype, compose, createFrom, createMany, cloneFrom } from 'ecs-js/archetype.js'
+import { defineArchetype, compose, createFrom, createMany, cloneFrom, Archetype } from 'ecs-js/archetype.js'
 
 // --- Define a base archetype ---
 export const MovingEntity = defineArchetype('MovingEntity',
@@ -195,6 +195,12 @@ export const MovingEntity = defineArchetype('MovingEntity',
 
 // --- Compose from other archetypes ---
 export const Player = compose('Player', MovingEntity, [Velocity, { dx: 1, dy: 0 }])
+
+// --- Or build fluently ---
+export const FluentPlayer = Archetype('Player')
+  .include(MovingEntity)
+  .add(Velocity, { dx: 1, dy: 0 })
+  .build()
 
 // --- Create entities from archetypes ---
 const e = createFrom(world, Player)

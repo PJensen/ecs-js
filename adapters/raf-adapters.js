@@ -67,7 +67,15 @@ function createBaseStats() {
 
 function cloneStats(stats) {
     // Shallow copy is sufficient (all fields are primitives)
-    return { ...stats };
+    const view = { ...stats };
+    view.frameCount = stats.rafFrame;
+    view.frameDt = stats.rafDt;
+    view.fps = stats.fpsEMA;
+    view.simTime = stats.simTime;
+    view.simTicks = stats.simTicks;
+    view.simDt = stats.lastSimDt;
+    view.simLag = stats.simLag;
+    return view;
 }
 
 function updateFps(stats, dt, alpha) {
@@ -478,6 +486,45 @@ export function createDualLoopRafLoop(options) {
         setAnimationFrameListener: (listener) => { frameListener = listener; },
     };
 }
+
+class RafLoopBuilder {
+    constructor(factory, defaults = {}) {
+        this._factory = factory;
+        this._opts = { ...(defaults || {}) };
+    }
+
+    world(world) { this._opts.world = world; return this; }
+    before(fn) { this._opts.beforeFrame = fn; return this; }
+    step(fn) { this._opts.stepFrame = fn; return this; }
+    render(fn) { this._opts.render = fn; return this; }
+    after(fn) { this._opts.afterFrame = fn; return this; }
+    onStats(fn) { this._opts.onStats = fn; return this; }
+    onFrame(fn) { this._opts.onAnimationFrame = fn; return this; }
+    maxDt(value) { this._opts.maxDt = value; return this; }
+    fpsAlpha(value) { this._opts.fpsAlpha = value; return this; }
+    fixed(interval) { this._opts.fixedSimInterval = interval; return this; }
+    maxSimSteps(value) { this._opts.maxSimSteps = value; return this; }
+    queueLimit(value) { this._opts.maxQueuedStepsPerFrame = value; return this; }
+    idleSim(flag = true) { this._opts.idleSimStep = flag; return this; }
+    raf(request, cancel) { this._opts.request = request; this._opts.cancel = cancel; return this; }
+    timeSource(now) { this._opts.now = now; return this; }
+    options(opts = {}) { Object.assign(this._opts, opts || {}); return this; }
+    build(extra = {}) { return this._factory({ ...this._opts, ...(extra || {}) }); }
+    start(startOptions) { const loop = this.build(); loop.start(startOptions); return loop; }
+}
+
+export const RafLoop = {
+    realtime(world, opts = {}) {
+        const builder = new RafLoopBuilder(createRealtimeRafLoop, opts || {});
+        if (world) builder.world(world);
+        return builder;
+    },
+    dual(world, opts = {}) {
+        const builder = new RafLoopBuilder(createDualLoopRafLoop, opts || {});
+        if (world) builder.world(world);
+        return builder;
+    }
+};
 
 /**
  * Factory helper that chooses between realtime and dual-loop RAF adapters.

@@ -96,16 +96,16 @@ export function attach(world, child, parent, opts = {}){
     const bs = world.get(before, Sibling);
     if (!bs || bs.parent !== parent) throw new Error('attach: before target not child of parent');
     next = before; prev = bs.prev|0; idx = bs.index|0;
+    _bumpIndices(world, parent, idx, +1);
     if (prev){ world.set(prev, Sibling, { next: child }); } else { world.set(parent, Parent, { first: child }); }
     world.set(next, Sibling, { prev: child });
-    _bumpIndices(world, parent, idx, +1);
   } else if (after){
     const as = world.get(after, Sibling);
     if (!as || as.parent !== parent) throw new Error('attach: after target not child of parent');
     prev = after; next = as.next|0; idx = (as.index|0)+1;
+    _bumpIndices(world, parent, idx, +1);
     if (next){ world.set(next, Sibling, { prev: child }); } else { world.set(parent, Parent, { last: child }); }
     world.set(prev, Sibling, { next: child });
-    _bumpIndices(world, parent, idx, +1);
   } else {
     prev = p.last|0; idx = p.count|0;
     if (prev){ world.set(prev, Sibling, { next: child }); } else { world.set(parent, Parent, { first: child }); }
@@ -184,3 +184,138 @@ export function reparent(world, child, newParent, opts = {}){ detach(world, chil
 export function indexOf(world, child){ const s = world.get(child, Sibling); return s ? (s.index|0) : -1; }
 /** Get the nth child id (0-based) or 0 if out of range. @param {World} world @param {number} parent @param {number} n @returns {number} */
 export function nthChild(world, parent, n){ const p = world.get(parent, Parent); if (!p) return 0; if (n<0 || n>=p.count) return 0; let i=0; for (const c of children(world, parent)) { if (i++===n) return c; } return 0; }
+
+const _attach = attach;
+const _detach = detach;
+const _destroy = destroySubtree;
+const _ensure = ensureParent;
+const _childCount = childCount;
+
+class TreeAttachBuilder {
+  constructor(tree, child) {
+    this._tree = tree;
+    this._world = tree.world;
+    this._child = child;
+  }
+
+  to(parent, opts = {}) {
+    _attach(this._world, this._child, parent, opts);
+    return new TreeOrderBuilder(this._tree, this._child, parent);
+  }
+}
+
+class TreeOrderBuilder {
+  constructor(tree, child, parent) {
+    this._tree = tree;
+    this._world = tree.world;
+    this._child = child;
+    this._parent = parent;
+  }
+
+  before(id) {
+    _attach(this._world, this._child, this._parent, { before: id });
+    return this;
+  }
+
+  after(id) {
+    _attach(this._world, this._child, this._parent, { after: id });
+    return this;
+  }
+
+  at(index) {
+    _attach(this._world, this._child, this._parent, { index });
+    return this;
+  }
+
+  first() {
+    return this.at(0);
+  }
+
+  last() {
+    _attach(this._world, this._child, this._parent);
+    return this;
+  }
+
+  append() {
+    return this.last();
+  }
+
+  to(parent, opts = {}) {
+    _attach(this._world, this._child, parent, opts);
+    this._parent = parent;
+    return this;
+  }
+
+  done() {
+    return this._tree;
+  }
+}
+
+class TreeFacade {
+  constructor(world) {
+    if (!world) throw new Error('Tree: world instance required');
+    this.world = world;
+  }
+
+  attach(child) {
+    return new TreeAttachBuilder(this, child);
+  }
+
+  reparent(child) {
+    return new TreeAttachBuilder(this, child);
+  }
+
+  detach(child, opts = {}) {
+    _detach(this.world, child, opts);
+    return this;
+  }
+
+  destroySubtree(root) {
+    _destroy(this.world, root);
+    return this;
+  }
+
+  ensure(parent) {
+    _ensure(this.world, parent);
+    return this;
+  }
+
+  children(parent) {
+    const p = this.world.get(parent, Parent);
+    if (!p) return [];
+    const out = [];
+    const seen = new Set();
+    let current = p.first | 0;
+    while (current && !seen.has(current)) {
+      out.push(current);
+      seen.add(current);
+      const sib = this.world.get(current, Sibling);
+      current = sib ? (sib.next | 0) : 0;
+    }
+    return out;
+  }
+
+  childrenWith(parent, ...comps) {
+    const ids = this.children(parent);
+    const out = [];
+    for (const id of ids) {
+      const values = [];
+      let ok = true;
+      for (const Comp of comps) {
+        if (!this.world.has(id, Comp)) { ok = false; break; }
+        values.push(this.world.get(id, Comp));
+      }
+      if (ok) out.push([id, ...values]);
+    }
+    return out;
+  }
+
+  childCount(parent) {
+    return _childCount(this.world, parent);
+  }
+}
+
+/** Fluent hierarchy facade for ergonomics. @param {World} world */
+export function Tree(world) {
+  return new TreeFacade(world);
+}

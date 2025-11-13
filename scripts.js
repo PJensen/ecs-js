@@ -4,7 +4,7 @@
 
 // FILE: ecs/scripts.js
 import { defineComponent, Changed } from './core.js';
-import { registerSystem } from './systems.js';
+import { registerSystem, Systems } from './systems.js';
 
 /** Built-in phase name used by default script systems. */
 export const PHASE_SCRIPTS = 'scripts';
@@ -35,6 +35,62 @@ function _sanitizeHandlers(h) { const o = {}; for (const k in (h || {})) if (typ
 function _ctx(world, id) { return { rand: world.rand, emit: (ev, p) => world.emit(ev, p) }; }
 function _noteErr(world, id, e) { const msg = (e && e.stack) ? e.stack : String(e); world.has(id, ScriptMeta) ? world.set(id, ScriptMeta, { lastError: msg }) : world.add(id, ScriptMeta, { lastError: msg }); }
 function _bump(world, id) { if (world.has(id, ScriptMeta)) world.mutate(id, ScriptMeta, m => { m.invoked++; }); }
+
+function _makeHelper(world, eid, args) {
+    const handlers = {};
+    const bag = {
+        world,
+        entity: eid,
+        args: args || {},
+        on(name, fn) {
+            if (typeof name !== 'string' || !name) throw new Error('script helper on(name, fn) requires a name');
+            if (typeof fn !== 'function') throw new Error(`script handler for ${name} must be a function`);
+            handlers[name] = fn;
+            return bag;
+        },
+        use(source) {
+            if (!source) return bag;
+            if (typeof source === 'function') {
+                const res = source(world, eid, args) || {};
+                Object.assign(handlers, _sanitizeHandlers(res));
+            } else {
+                Object.assign(handlers, _sanitizeHandlers(source));
+            }
+            return bag;
+        }
+    };
+    return [new Proxy(bag, {
+        get(target, key) {
+            if (key in target) return target[key];
+            return (fn) => {
+                if (typeof fn !== 'function') throw new Error(`script handler for ${String(key)} must be a function`);
+                handlers[key] = fn;
+                return target;
+            };
+        }
+    }), handlers];
+}
+
+class ScriptEntityHandle {
+    constructor(world, id) {
+        this.world = world;
+        this.id = id;
+    }
+
+    addScript(scriptId, args = {}) {
+        this.world.add(this.id, ScriptRef, { id: String(scriptId), args: args || {} });
+        return this;
+    }
+
+    removeScript() {
+        if (this.world.has(this.id, ScriptRef)) this.world.remove(this.id, ScriptRef);
+        return this;
+    }
+
+    script() {
+        return this.world.get(this.id, ScriptRef) || null;
+    }
+}
 
 function ScriptAttachSystem(world, dt) {
     // (Re)attach handlers when ScriptRef changes
@@ -76,6 +132,13 @@ registerSystem(ScriptTickSystem, PHASE_SCRIPTS);
 
 // Public convenience API — attaches a scripting facet onto world instances
 export function installScriptsAPI(world) {
+    const registered = Systems.list(PHASE_SCRIPTS);
+    if (!registered.includes(ScriptAttachSystem)) {
+        registerSystem(ScriptAttachSystem, PHASE_SCRIPTS, { before: [ScriptTickSystem] });
+    }
+    if (!registered.includes(ScriptTickSystem)) {
+        registerSystem(ScriptTickSystem, PHASE_SCRIPTS);
+    }
     world.scripts = {
         /** Register a script factory under a string id. */
         register(id, factory) { _registry.set(String(id), factory); },
@@ -86,5 +149,40 @@ export function installScriptsAPI(world) {
         /** Force re-attachment by touching ScriptRef so Changed() matches next frame. */
         refresh() { for (const [eid, sref] of world.query(ScriptRef)) world.set(eid, ScriptRef, { id: sref.id, args: sref.args }); }
     };
+
+    world.script = function script(id, configure) {
+        if (typeof id !== 'string' || !id) throw new Error('world.script: id must be a non-empty string');
+        if (configure == null) return world;
+        if (typeof configure === 'object' && !Array.isArray(configure)) {
+            const handlers = _sanitizeHandlers(configure);
+            world.scripts.register(id, () => handlers);
+            return world;
+        }
+        if (typeof configure !== 'function') throw new Error('world.script: configure must be a function or object');
+        world.scripts.register(id, (w, eid, args) => {
+            const [helper, handlers] = _makeHelper(w, eid, args);
+            const result = configure(helper, w, eid, args);
+            if (result && typeof result === 'object') Object.assign(handlers, _sanitizeHandlers(result));
+            return _sanitizeHandlers(handlers);
+        });
+        return world;
+    };
+
+    world.addScript = function addScript(eid, scriptId, args = {}) {
+        world.add(eid, ScriptRef, { id: String(scriptId), args: args || {} });
+        return world;
+    };
+
+    world.removeScript = function removeScript(eid) {
+        if (world.has(eid, ScriptRef)) world.remove(eid, ScriptRef);
+        return world;
+    };
+
+    if (typeof world.entity !== 'function') {
+        world.entity = function entityHandle(id) {
+            if (!world.isAlive(id)) throw new Error('entity: id must be alive');
+            return new ScriptEntityHandle(world, id);
+        };
+    }
     return world;
 }
