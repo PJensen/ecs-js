@@ -16,73 +16,16 @@ import { installScriptsAPI, PHASE_SCRIPTS } from './scripts.js';
 import { mulberry32 } from './rng.js';
 
 const globalConsole = (typeof console !== 'undefined') ? console : null;
-const NOOP = () => {};
-
-function bindLoggerMethod(target, method, fallbackMethod = 'log') {
-  if (!target) return NOOP;
-  const fn = typeof target[method] === 'function'
-    ? target[method].bind(target)
-    : (typeof target[fallbackMethod] === 'function' ? target[fallbackMethod].bind(target) : null);
-  return fn || NOOP;
-}
-
-/**
- * Normalize a logger-like value into an object with info/warn/error/debug no-ops.
- * Accepts console-like objects or simple functions. Defaults to global console.
- * @param {object|function|null|undefined} candidate
- * @returns {{info:Function, warn:Function, error:Function, debug:Function}}
- */
-export function createLogger(candidate) {
-  if (candidate && typeof candidate === 'function') {
-    const fn = candidate;
-    return { info: fn, warn: fn, error: fn, debug: fn };
-  }
-  if (candidate && typeof candidate.info === 'function' && typeof candidate.warn === 'function' && typeof candidate.error === 'function') {
-    return {
-      info: candidate.info.bind(candidate),
-      warn: candidate.warn.bind(candidate),
-      error: candidate.error.bind(candidate),
-      debug: typeof candidate.debug === 'function' ? candidate.debug.bind(candidate) : NOOP
-    };
-  }
-  const target = candidate || globalConsole || {};
-  return {
-    info: bindLoggerMethod(target, 'info'),
-    warn: bindLoggerMethod(target, 'warn'),
-    error: bindLoggerMethod(target, 'error'),
-    debug: bindLoggerMethod(target, 'debug')
-  };
-}
-
-const hasPerformanceNow = typeof performance !== 'undefined' && typeof performance.now === 'function';
-const now = () => (hasPerformanceNow ? performance.now() : Date.now());
+const logError = (globalConsole && typeof globalConsole.error === 'function') ? globalConsole.error.bind(globalConsole) : () => {};
 
 class WorldDebug {
   constructor(world) {
     this.world = world;
     this.enabled = !!world?._debug;
     this._history = new Map(); // Map<entityId, Map<compKey, snapshot>>
-    Object.defineProperty(this, 'lastProfile', {
-      get: () => this.world?.profiler?.lastProfile ?? null,
-      set: (value) => {
-        if (this.world?.profiler) this.world.profiler.lastProfile = value;
-      }
-    });
   }
 
   enable(on = true) { this.enabled = !!on; return this; }
-
-  _profiler() {
-    if (!this.world?.profiler) throw new Error('world.profiler unavailable');
-    return this.world.profiler;
-  }
-
-  useTimeSource(fn) { this._profiler().useTimeSource(fn); return this; }
-  now() { return this._profiler().now(); }
-  enableProfiling(on = true) { this._profiler().enable(on); return this; }
-  isProfiling() { return this._profiler().isProfiling(); }
-  onProfile(fn) { return this._profiler().onProfile(fn); }
-  clearProfiles() { this._profiler().clearProfiles(); return this; }
 
   inspect(id) {
     const world = this.world;
@@ -197,9 +140,6 @@ export class World {
     // hooks
     this.onTick = opts.onTick || null;
 
-    // logging
-    this.logger = createLogger(opts.logger);
-
     // rng
     this.seed = (opts.seed ?? (Math.random() * 2 ** 32) | 0) >>> 0;
     this.rand = mulberry32(this.seed);
@@ -227,19 +167,12 @@ export class World {
     this.time = 0;
     this.step = 0;
 
-    this.profiler = new WorldProfiler(this);
-    if (opts.profile) this.profiler.enable(true);
     this.debug = new WorldDebug(this);
     this.debug.enable(this._debug);
   }
 
   static create(opts = {}) {
     return new WorldBuilder(opts);
-  }
-
-  setLogger(logger) {
-    this.logger = createLogger(logger);
-    return this;
   }
 
   /** Install/replace the scheduler. Must be (world, dt) => void.
@@ -259,7 +192,7 @@ export class World {
    * @returns {this}
    */
   system(fn, phase = 'default', opts = {}) {
-    try { registerSystem(fn, phase, opts); } catch (e) { this.logger.error('[ecs] system registration failed', e); }
+    try { registerSystem(fn, phase, opts); } catch (e) { logError('[ecs] system registration failed', e); }
     return this;
   }
 
@@ -272,11 +205,9 @@ export class World {
     this.time += dt;
     this.step++;
     this._inTick = true;
-    this.profiler.beginTick();
-
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     try { this.scheduler(this, dt); }
-    catch (e) { this.logger.error('[ecs] scheduler error', e); }
+    catch (e) { logError('[ecs] scheduler error', e); }
 
     // Flush deferred ops (bounded)
     if (this._cmd.length) {
@@ -295,8 +226,10 @@ export class World {
     this._inTick = false;
 
     const took = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
-    this.profiler.endTick(took, dt);
-    if (typeof this.onTick === 'function') { try { this.onTick(took, this); } catch (e) { this.logger.error('[ecs] onTick error', e); } }
+    if (typeof this.onTick === 'function') {
+      try { this.onTick(took, this); }
+      catch (e) { logError('[ecs] onTick error', e); }
+    }
   }
 
   /** ===== Entity lifecycle ===== */
@@ -661,7 +594,16 @@ export class World {
   /** Unsubscribe a listener. @param {string} event @param {(payload:any)=>void} fn */
   off(event, fn) { const set = this._ev?.get(event); if (set) set.delete(fn); }
   /** Emit an event to listeners. @param {string} event @param {any} payload @returns {number} count of listeners invoked */
-  emit(event, payload) { const set = this._ev?.get(event); if (!set) return 0; let n = 0; for (const f of set) { try { f(payload, this); n++; } catch (e) { this.logger.error('event error', e); } } return n; }
+  emit(event, payload) {
+    const set = this._ev?.get(event);
+    if (!set) return 0;
+    let n = 0;
+    for (const f of set) {
+      try { f(payload, this); n++; }
+      catch (e) { logError('event error', e); }
+    }
+    return n;
+  }
 
   /** ===== Deferral ===== */
   /** Queue a deferred operation or function to run outside of tick context. @param {any} opOrFn */
@@ -703,7 +645,7 @@ export class World {
         if (deferred) return 'defer';
         if (res === 'ignore' || res === false) return 'ignore';
       } catch (handlerErr) {
-        this.logger.error('[ecs] strict handler error', handlerErr);
+        logError('[ecs] strict handler error', handlerErr);
       }
     }
     throw error;
@@ -717,7 +659,7 @@ export class World {
       if (t === 'remove')  return this.remove(op[1], op[2]);
       if (t === 'set')     return this.set(op[1], op[2], op[3]);
       if (t === 'mutate')  return this.mutate(op[1], op[2], op[3]);
-    } catch (e) { this.logger.error('applyOp error', e); }
+    } catch (e) { logError('applyOp error', e); }
   }
 
   /** ===== Diagnostics ===== */
@@ -730,87 +672,6 @@ export class World {
     this._debug = !!on;
     if (this.debug) this.debug.enable(this._debug);
     return this;
-  }
-}
-
-class WorldProfiler {
-  constructor(world) {
-    this.world = world;
-    this.enabled = false;
-    this._timeSource = now;
-    this._profileHandlers = new Set();
-    this._currentProfile = null;
-    this.lastProfile = null;
-  }
-
-  enable(on = true) {
-    this.enabled = !!on;
-    if (!this.enabled) this._currentProfile = null;
-    return this;
-  }
-
-  isProfiling() {
-    return this.enabled || this._profileHandlers.size > 0;
-  }
-
-  useTimeSource(fn) {
-    if (typeof fn !== 'function') throw new Error('world.profiler.useTimeSource expects a function');
-    this._timeSource = fn;
-    return this;
-  }
-
-  now() {
-    return this._timeSource();
-  }
-
-  onProfile(fn) {
-    if (typeof fn !== 'function') throw new Error('world.profiler.onProfile expects a function');
-    this._profileHandlers.add(fn);
-    return () => this._profileHandlers.delete(fn);
-  }
-
-  clearProfiles() {
-    this.lastProfile = null;
-    this._currentProfile = null;
-    return this;
-  }
-
-  beginTick() {
-    if (!this.isProfiling()) {
-      this._currentProfile = null;
-      return;
-    }
-    this._currentProfile = { systems: [], phaseTotals: new Map() };
-  }
-
-  recordSystem(phase, system, duration) {
-    if (!this._currentProfile) return;
-    const entry = {
-      phase,
-      system,
-      name: typeof system?.name === 'string' && system.name.length ? system.name : '(anonymous)',
-      duration,
-    };
-    this._currentProfile.systems.push(entry);
-    const prev = this._currentProfile.phaseTotals.get(phase) || 0;
-    this._currentProfile.phaseTotals.set(phase, prev + duration);
-  }
-
-  endTick(total, dt) {
-    if (!this._currentProfile) return;
-    const phases = Array.from(this._currentProfile.phaseTotals, ([phase, duration]) => ({ phase, duration }));
-    const payload = {
-      total,
-      dt,
-      systems: this._currentProfile.systems.slice(),
-      phases,
-    };
-    this.lastProfile = payload;
-    for (const handler of this._profileHandlers) {
-      try { handler(payload, this.world); }
-      catch (e) { this.world.logger.warn('[ecs] profile handler error', e); }
-    }
-    this._currentProfile = null;
   }
 }
 
@@ -830,7 +691,6 @@ export class WorldBuilder {
   withSeed(seed) { this._opts.seed = seed >>> 0; return this; }
   enableStrict(on = true) { this._opts.strict = !!on; return this; }
   enableDebug(on = true) { this._opts.debug = !!on; return this; }
-  withLogger(logger) { this._opts.logger = logger; return this; }
   withOptions(opts = {}) { Object.assign(this._opts, opts || {}); return this; }
   withScheduler(...steps) { this._customScheduler = null; this._schedulerSteps = steps.flat().filter(Boolean); return this; }
   withSchedulerFn(fn) {

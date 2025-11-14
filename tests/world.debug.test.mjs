@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { World, defineComponent } from '../core.js';
-import { clearSystems, registerSystem, composeScheduler } from '../systems.js';
 
 const Position = defineComponent('Position', { x: 0, y: 0 });
 const Velocity = defineComponent('Velocity', { x: 0, y: 0 });
@@ -36,78 +35,4 @@ test('world.debug.inspect snapshots component values with diffs', () => {
   world.destroy(eid);
   snapshot = world.debug.inspect(eid);
   assert.equal(snapshot.alive, false);
-});
-
-class Tracker {
-  constructor() {
-    this.calls = [];
-  }
-  push(label) {
-    this.calls.push(label);
-  }
-}
-
-test('world.debug profiling captures per-system timings', (t) => {
-  clearSystems();
-  t.after(() => clearSystems());
-  const tracker = new Tracker();
-
-  function phaseA(world) {
-    tracker.push('a');
-  }
-
-  function phaseB(world) {
-    tracker.push('b');
-  }
-
-  registerSystem(phaseA, 'alpha');
-  registerSystem(phaseB, 'beta');
-
-  const world = new World({ debug: true });
-  world.debug.enableProfiling(true);
-  Tracker._time = 0;
-  world.debug.useTimeSource(() => {
-    Tracker._time = (Tracker._time || 0) + 1;
-    return Tracker._time;
-  });
-
-  let profile = null;
-  const off = world.debug.onProfile((payload) => {
-    profile = payload;
-  });
-
-  world.setScheduler(composeScheduler('alpha', 'beta'));
-  world.tick(1);
-
-  assert.deepEqual(tracker.calls, ['a', 'b']);
-  assert.ok(profile, 'profiling payload should be delivered');
-  assert.equal(world.debug.lastProfile, profile);
-  assert.equal(profile.systems.length, 2);
-  assert.deepEqual(profile.systems.map((r) => r.phase), ['alpha', 'beta']);
-  assert.ok(profile.systems.every((r) => typeof r.duration === 'number'));
-  assert.deepEqual(profile.phases.map((p) => p.phase), ['alpha', 'beta']);
-  assert.ok(typeof profile.total === 'number');
-  assert.equal(typeof profile.dt, 'number');
-
-  off();
-});
-
-test('profiling continues even when debug is disabled', (t) => {
-  clearSystems();
-  t.after(() => clearSystems());
-
-  function stepper() {}
-  registerSystem(stepper, 'only');
-
-  const world = new World({ debug: true });
-  world.debug.enableProfiling(true);
-  world.setScheduler(composeScheduler('only'));
-
-  world.tick(1);
-  const firstProfile = world.debug.lastProfile;
-  assert.ok(firstProfile, 'profiling should run while debug enabled');
-
-  world.enableDebug(false);
-  world.tick(1);
-  assert.notEqual(world.debug.lastProfile, firstProfile, 'profiling should continue regardless of debug toggle');
 });

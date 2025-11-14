@@ -13,12 +13,8 @@
 
 const _systems = Object.create(null);      // { phase: [ { system, before:Set, after:Set } ] }
 const _explicitOrder = Object.create(null); // { phase: [fn, fn, ...] }
-const globalConsole = (typeof console !== 'undefined') ? console : {};
-const noop = () => {};
-const defaultLogger = {
-  warn: typeof globalConsole.warn === 'function' ? globalConsole.warn.bind(globalConsole) : noop,
-  error: typeof globalConsole.error === 'function' ? globalConsole.error.bind(globalConsole) : noop
-};
+const globalConsole = (typeof console !== 'undefined') ? console : null;
+const logError = (globalConsole && typeof globalConsole.error === 'function') ? globalConsole.error.bind(globalConsole) : () => {};
 
 function escapeLabel(label) {
   return String(label).replace(/"/g, '\\"');
@@ -82,21 +78,10 @@ export function getOrderedSystems(phase) {
  */
 export function runSystems(phase, world, dt) {
   const list = getOrderedSystems(phase);
-  const logger = (world && world.logger) ? world.logger : defaultLogger;
-  const profiler = world?.profiler;
-  const shouldProfile = !!(profiler && typeof profiler.isProfiling === 'function' && profiler.isProfiling());
   for (let i = 0; i < list.length; i++) {
     const fn = list[i];
-    let start = 0;
-    if (shouldProfile) start = profiler.now();
     try { fn(world, dt); }
-    catch (e) { logger.error(`[systems] error in phase "${phase}"`, e); }
-    finally {
-      if (shouldProfile) {
-        const end = profiler.now();
-        profiler.recordSystem(phase, fn, end - start);
-      }
-    }
+    catch (e) { logError(`[systems] error in phase "${phase}"`, e); }
   }
 }
 

@@ -1,14 +1,5 @@
 export type StoreMode = 'map' | 'soa';
 
-export interface Logger {
-  info(...args: any[]): void;
-  warn(...args: any[]): void;
-  error(...args: any[]): void;
-  debug(...args: any[]): void;
-}
-
-export type LoggerLike = Logger | ((...args: any[]) => void);
-
 export type FrameRequestCallback = (timestamp: number) => void;
 
 export interface WorldOptions {
@@ -16,9 +7,7 @@ export interface WorldOptions {
   store?: StoreMode;
   strict?: boolean;
   debug?: boolean;
-  profile?: boolean;
   onTick?: (duration: number, world: World) => void;
-  logger?: LoggerLike | null;
 }
 
 export interface Component<T = any> {
@@ -79,55 +68,17 @@ export interface EventDisposer {
   (): void;
 }
 
-export interface WorldDebugProfilePhase {
-  phase: string;
-  duration: number;
-}
-
-export interface WorldDebugProfileEntry {
-  phase: string;
-  system: (world: World, dt: number) => void;
-  name: string;
-  duration: number;
-}
-
-export interface WorldDebugProfilePayload {
-  total: number;
-  dt: number;
-  systems: WorldDebugProfileEntry[];
-  phases: WorldDebugProfilePhase[];
-}
-
-export interface WorldProfiler {
-  enable(on?: boolean): this;
-  isProfiling(): boolean;
-  useTimeSource(fn: () => number): this;
-  now(): number;
-  onProfile(fn: (profile: WorldDebugProfilePayload, world: World) => void): () => void;
-  clearProfiles(): this;
-  lastProfile: WorldDebugProfilePayload | null;
-}
-
 export interface WorldDebug {
   enable(on?: boolean): this;
-  useTimeSource(fn: () => number): this;
-  now(): number;
-  enableProfiling(on?: boolean): this;
-  isProfiling(): boolean;
-  onProfile(fn: (profile: WorldDebugProfilePayload, world: World) => void): () => void;
-  clearProfiles(): this;
   inspect(entity: number): { id: number; alive: boolean; components: Record<string, any>; removed: string[] };
   forget(entity: number): this;
-  lastProfile: WorldDebugProfilePayload | null;
 }
 
 export class World {
   constructor(options?: WorldOptions);
   static create(options?: WorldOptions): WorldBuilder;
 
-  logger: Logger;
   debug: WorldDebug;
-  profiler: WorldProfiler;
   scheduler: ((world: World, dt: number) => void) | null;
   seed: number;
   rand: () => number;
@@ -135,7 +86,6 @@ export class World {
   time: number;
   step: number;
 
-  setLogger(logger: LoggerLike | null | undefined): this;
   setScheduler(fn: (world: World, dt: number) => void): this;
   system(fn: (world: World, dt: number) => void, phase?: string, opts?: { before?: Function[]; after?: Function[] }): this;
   tick(dt: number): void;
@@ -184,7 +134,6 @@ export class WorldBuilder {
   withSeed(seed: number): this;
   enableStrict(on?: boolean): this;
   enableDebug(on?: boolean): this;
-  withLogger(logger: LoggerLike | null | undefined): this;
   withOptions(options: WorldOptions): this;
   withScheduler(...steps: (string | ((world: World, dt: number) => void))[]): this;
   withSchedulerFn(fn: (world: World, dt: number) => void): this;
@@ -434,5 +383,3 @@ export const RafLoop: {
   realtime(world?: World, opts?: Partial<RafLoopOptions>): RafLoopBuilder;
   dual(world?: World, opts?: Partial<DualRafLoopOptions>): RafLoopBuilder;
 };
-
-export function createLogger(logger?: LoggerLike | null): Logger;

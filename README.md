@@ -61,7 +61,7 @@ const world = World.create({ seed: 9 })
   .build()
 ```
 
-`World.create()` collects options, systems, installers, and scheduler steps before producing a world. Mix and match `.useMap()/.useSoA()`, `.withSchedulerFn(fn)`, `.install(world => { ... })`, and `.withLogger(console)` to keep setup declarative. You can still register systems later via `world.system(fn, 'phase')`.
+`World.create()` collects options, systems, installers, and scheduler steps before producing a world. Mix and match `.useMap()/.useSoA()`, `.withSchedulerFn(fn)`, `.install(world => { ... })`, or `.enableStrict()` to keep setup declarative without hiding the primitives. You can still register systems later via `world.system(fn, 'phase')`.
 
 `useScripts({ phase: 'update' })` lets you co-locate the built-in script systems inside an existing phase; omit the option to leave them under the default `scripts` phase.
 
@@ -229,30 +229,26 @@ export const EXAMPLE_ROUTES = {
 
 ---
 
-## 🛠️ Debugging & Profiling
+## 🛠️ Debugging
 
-Every world ships with a `debug` facade. Opt in with `{ debug: true }` or toggle later via `world.enableDebug(true)`, then cherry-pick the tooling you need:
+Every world ships with a `debug` facade. Opt in with `{ debug: true }` or toggle later via `world.enableDebug(true)` whenever you need visibility:
 
 ```js
 const world = new World({ debug: true })
 
-world.debug.enableProfiling()
-world.debug.onProfile(({ total, phases, systems }) => {
-  console.table(phases)
-})
-
 const snapshot = world.debug.inspect(entityId)
 console.log(snapshot.components.Position.diff) // per-component change info
+
+world.debug.forget(entityId) // drop retained history for that entity
 ```
 
 Highlights:
 
-- `debug.inspect(id)` stores the latest snapshot and diff per component so you can trace what changed across ticks. Call `debug.forget(id)` to drop history.
-- `debug.enableProfiling()` (or `world.profiler.enable(true)`) plus `debug.onProfile(fn)` stream per-system timings after each tick. The last report is available via `debug.lastProfile`.
-- `debug.useTimeSource(fn)` swaps the clock used for profiling (handy for deterministic tests); it feeds the underlying profiler, which runs independently of the debug flag.
-- `debug.clearProfiles()` and `world.profiler.enable(false)` keep instrumentation overhead out of release builds.
+- `debug.inspect(id)` stores the latest snapshot and diff per component so you can trace what changed across ticks. Snapshots include `alive`, `removed`, and per-component `changed` flags.
+- `debug.forget(id)` discards the cached history for an entity so future inspections start fresh — handy for large worlds or long-running sessions.
+- `world.enableDebug(false)` leaves the helper in place but stops capturing history until you re-enable it, keeping overhead out of release builds.
 
-Inspection hooks are no-ops when debug mode is disabled, while profiling can remain enabled independently for telemetry.
+Inspection hooks are inert when debug mode is disabled, so you can leave calls in place without paying the cost at runtime.
 
 ---
 
