@@ -119,6 +119,32 @@ for (const [id, pos, vel] of world.query(Position, Velocity)) {
 Queries return iterable tuples.
 Supports `Not(Comp)`, `Changed(Comp)`, and query options like `orderBy`, `limit`, and `offset`.
 
+Each iterator also exposes `.run(fn)` (to execute a callback for every tuple) and `.count({ cheap })` when you just need the
+cardinality.
+
+#### Query Builder
+
+Hoist frequently used queries — with baked-in filters or projections — via `world.defineQuery(...)`.
+
+```js
+const moving = world
+  .defineQuery(Position, Velocity)
+  .where((pos, vel) => Math.abs(vel.dx) + Math.abs(vel.dy) > 0)
+  .orderBy((a, b) => a.id - b.id)
+
+for (const [id, pos, vel] of moving()) {
+  // executes with cached component lists + your filters
+}
+
+const projected = moving.project((pos, vel, id) => ({ id, vel }))
+projected.run(({ id, vel }) => console.log(id, vel))
+```
+
+The builder returns an immutable handle; chaining `where`, `project`, `orderBy`, `offset`, or `limit` creates a new handle while
+sharing the cached core query. Calling the handle executes the query immediately (optionally passing per-call overrides).
+Comparators receive the cached row objects (`{ id, comps, p }`), so you can sort by entity id or by a projected value (`a.p`).
+Handles also expose `.options()` for introspection and `.spec` for access to the normalized component set.
+
 ---
 
 ## ⚙️ Systems & Scheduling
@@ -598,7 +624,7 @@ import { installScriptsAPI, PHASE_SCRIPTS, addScriptTickPhase, makeScriptRouter 
 
 ## 🧠 Notes
 
-* The ECS has no built-in `requestAnimationFrame`, so simulation remains deterministic and replayable.
+* The ECS has no built-in `requestAnimationFrame`, so simulation remains deterministic and replayable (see [RequestAnimationFrame Adapters](#-requestanimationframe-adapters) if you want a ready-made loop).
 * You control the time step (`dt`) passed to `world.tick(dt)`.
 * Rendering is just another system phase (`'render'`), which can use WebGL, Canvas2D, or DOM updates.
 * Works seamlessly with snapshot/replay systems — only the visual layer depends on real time.
@@ -607,7 +633,10 @@ import { installScriptsAPI, PHASE_SCRIPTS, addScriptTickPhase, makeScriptRouter 
 
 ## 📦 Install
 
-git submodule add https://github.com/your-org/ECS.js.git lib/ecs-js git commit -m "Add ecs-js as submodule"
+```bash
+git submodule add https://github.com/PJensen/ECS.js.git lib/ecs-js
+git commit -m "Add ecs-js as submodule"
+```
 
 directly in the browser:
 
@@ -621,7 +650,7 @@ directly in the browser:
 
 | File                      | Purpose                                                   |
 | ------------------------- | --------------------------------------------------------- |
-| **core.js**               | World + builder, debug/logging, components, queries       |
+| **core.js**               | World + builder, debug/logging, components, queries, query builder |
 | **systems.js**            | System registry, fluent phase builder, composition        |
 | **hierarchy.js**          | Parent–child tree operations                              |
 | **serialization.js**      | Snapshot, registry, deserialization                       |
@@ -632,6 +661,8 @@ directly in the browser:
 | **scriptsPhasesExtra.js** | Optional extra script phases and per-entity phase control |
 | **adapters/raf-adapters.js** | requestAnimationFrame loop helpers (realtime & dual-loop) |
 | **adapters/scriptRouter.js** | Route world events to script handlers                    |
+| **index.js**              | Barrel re-export of core, systems, adapters, helpers      |
+| **ecs.d.ts**              | TypeScript declarations for editor/IDE intellisense      |
 
 ---
 
