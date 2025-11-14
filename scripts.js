@@ -51,7 +51,7 @@ function _makeHelper(world, eid, args) {
     const bag = {
         world,
         entity: eid,
-        args: args || {},
+        args: (args && typeof args === 'object') ? args : {},
         on(name, fn) {
             if (typeof name !== 'string' || !name) throw new Error('script helper on(name, fn) requires a name');
             if (typeof fn !== 'function') throw new Error(`script handler for ${name} must be a function`);
