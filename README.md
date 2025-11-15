@@ -550,6 +550,7 @@ world.removeScript(e)                   // or world.entity(e).removeScript()
 The helper exposes:
 
 - `helper.on(name, fn)` or `helper.someHook(fn)` for named handlers (`onTick`, custom events, etc.).
+- Arbitrary property access is proxied, so `helper.damage(fn)` is shorthand for `helper.on('damage', fn)` — any name you read turns into a handler registration function.
 - `helper.use(factoryOrHandlers)` to compose other handler tables.
 - Access to `helper.world`, `helper.entity`, and `helper.args` so you can stash local state.
 
