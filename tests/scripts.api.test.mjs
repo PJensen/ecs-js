@@ -61,3 +61,17 @@ test('useScripts installs systems into a custom phase', () => {
   const meta = world.get(eid, ScriptMeta);
   assert.ok(meta);
 });
+
+test('script helper warns when handler accessor is not invoked', () => {
+  const world = World.create().useScripts().withScheduler(PHASE_SCRIPTS).build();
+  world.script('BrokenScript', ({ onTick }) => {
+    onTick; // access without invocation should trigger validation
+  });
+  const eid = world.create();
+  world.addScript(eid, 'BrokenScript');
+  world.tick(0.016);
+
+  const meta = world.get(eid, ScriptMeta);
+  assert.ok(meta);
+  assert.match(meta.lastError, /script helper properties accessed without assigning handlers/);
+});

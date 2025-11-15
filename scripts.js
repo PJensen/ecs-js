@@ -48,6 +48,7 @@ function _ensureScriptPhase(phase) {
 
 function _makeHelper(world, eid, args) {
     const handlers = {};
+    const pendingKeys = new Set();
     const bag = {
         world,
         entity: eid,
@@ -69,16 +70,26 @@ function _makeHelper(world, eid, args) {
             return bag;
         }
     };
-    return [new Proxy(bag, {
+    const helper = new Proxy(bag, {
         get(target, key) {
             if (key in target) return target[key];
+            if (typeof key !== 'string') return undefined;
+            const keyName = String(key);
+            pendingKeys.add(keyName);
             return (fn) => {
-                if (typeof fn !== 'function') throw new Error(`script handler for ${String(key)} must be a function`);
-                handlers[key] = fn;
+                if (typeof fn !== 'function') throw new Error(`script handler for ${keyName} must be a function`);
+                pendingKeys.delete(keyName);
+                handlers[keyName] = fn;
                 return target;
             };
         }
-    }), handlers];
+    });
+    const assertHandlersUsed = () => {
+        if (pendingKeys.size === 0) return;
+        const unused = Array.from(pendingKeys).join(', ');
+        throw new Error(`script helper properties accessed without assigning handlers: ${unused}`);
+    };
+    return [helper, handlers, assertHandlersUsed];
 }
 
 class ScriptEntityHandle {
@@ -164,9 +175,10 @@ export function installScriptsAPI(world, options = {}) {
         }
         if (typeof configure !== 'function') throw new Error('world.script: configure must be a function or object');
         world.scripts.register(id, (w, eid, args) => {
-            const [helper, handlers] = _makeHelper(w, eid, args);
+            const [helper, handlers, assertHandlersUsed] = _makeHelper(w, eid, args);
             const result = configure(helper, w, eid, args);
             if (result && typeof result === 'object') Object.assign(handlers, _sanitizeHandlers(result));
+            assertHandlersUsed();
             return _sanitizeHandlers(handlers);
         });
         return world;
