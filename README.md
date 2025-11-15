@@ -1,3 +1,5 @@
+Release coming tomorrow!
+
 # ECS.js
 
 Entity–Component–System architecture for JavaScript
