@@ -31,6 +31,9 @@ Suitable for both discrete-event and real-time updates.
 **Pure logic**
  No rendering or timing assumptions — plug into any UI, engine, or visualization layer.
 
+**Ergonomic helpers**
+ Optional builders (`World.create`, `world.script`, entity handles) keep advanced setups terse without hiding the underlying primitives.
+
 ---
 
 ## 🧩 Core Concepts
@@ -44,6 +47,25 @@ const world = new World({ seed: 12345, store: 'map' })
 
 A `World` manages all entities, components, and systems.
 Each call to `world.tick(dt)` advances the simulation deterministically by one step.
+
+When you need to wire multiple phases, installers, or strict/debug tooling, reach for the fluent builder:
+
+```js
+import { World, PHASE_SCRIPTS } from 'ecs-js/index.js'
+
+const world = World.create({ seed: 9 })
+  .useSoA()
+  .system(moveSystem, 'update')
+  .withPhases('update', PHASE_SCRIPTS)   // ensure scheduler covers required phases
+  .useScripts({ phase: PHASE_SCRIPTS })  // auto-install ScriptRef systems
+  .withScheduler('update', PHASE_SCRIPTS)
+  .onStrictError(ctx => ctx.defer())     // optional strict-mode policy
+  .build()
+```
+
+`World.create()` collects options, systems, installers, and scheduler steps before producing a world. Mix and match `.useMap()/.useSoA()`, `.withSchedulerFn(fn)`, `.install(world => { ... })`, or `.enableStrict()` to keep setup declarative without hiding the primitives. You can still register systems later via `world.system(fn, 'phase')`.
+
+`useScripts({ phase: 'update' })` lets you co-locate the built-in script systems inside an existing phase; omit the option to leave them under the default `scripts` phase.
 
 ---
 
@@ -59,6 +81,19 @@ export const Visible  = defineTag('Visible')
 
 Components are pure data containers.
 Tags are zero-data markers for boolean traits or group membership.
+
+Prefer the fluent builder when you want validation or want to flip between data components and tags without changing call sites:
+
+```js
+import { Component } from 'ecs-js/core.js'
+
+export const Velocity = Component('Velocity')
+  .defaults({ dx: 0, dy: 0 })
+  .validate(v => Number.isFinite(v.dx) && Number.isFinite(v.dy))
+  .build()
+
+export const Visible = Component('Visible').tag()
+```
 
 ---
 
@@ -86,6 +121,32 @@ for (const [id, pos, vel] of world.query(Position, Velocity)) {
 Queries return iterable tuples.
 Supports `Not(Comp)`, `Changed(Comp)`, and query options like `orderBy`, `limit`, and `offset`.
 
+Each iterator also exposes `.run(fn)` (to execute a callback for every tuple) and `.count({ cheap })` when you just need the
+cardinality.
+
+#### Query Builder
+
+Hoist frequently used queries — with baked-in filters or projections — via `world.defineQuery(...)`.
+
+```js
+const moving = world
+  .defineQuery(Position, Velocity)
+  .where((pos, vel) => Math.abs(vel.dx) + Math.abs(vel.dy) > 0)
+  .orderBy((a, b) => a.id - b.id)
+
+for (const [id, pos, vel] of moving()) {
+  // executes with cached component lists + your filters
+}
+
+const projected = moving.project((pos, vel, id) => ({ id, vel }))
+projected.run(({ id, vel }) => console.log(id, vel))
+```
+
+The builder returns an immutable handle; chaining `where`, `project`, `orderBy`, `offset`, or `limit` creates a new handle while
+sharing the cached core query. Calling the handle executes the query immediately (optionally passing per-call overrides).
+Comparators receive the cached row objects (`{ id, comps, p }`), so you can sort by entity id or by a projected value (`a.p`).
+Handles also expose `.options()` for introspection and `.spec` for access to the normalized component set.
+
 ---
 
 ## ⚙️ Systems & Scheduling
@@ -109,6 +170,27 @@ world.tick(1)
 
 Each phase name is arbitrary — you decide the lifecycle.
 System order can be declared via `before` / `after` or pinned explicitly with `setSystemOrder`.
+
+You can also skip the globals entirely and register straight off a world:
+
+```js
+world.system(moveSystem, 'update')   // internally pipes to registerSystem
+```
+
+For larger setups, use the fluent registry to keep dependency declarations next to the systems they affect:
+
+```js
+import { Systems } from 'ecs-js/systems.js'
+
+Systems.phase('update')
+  .add(moveSystem)
+  .add(applyIntentSystem).after(moveSystem)
+  .order(moveSystem, applyIntentSystem)
+
+console.log(Systems.visualizeGraph({ phase: 'update' })) // DOT graph for quick sanity checks
+```
+
+`composeScheduler` happily mixes phase names and inline functions. The builder variant (`World.create().withScheduler(...)`) simply pre-populates those same steps before the world is built.
 
 ---
 
@@ -149,6 +231,29 @@ export const EXAMPLE_ROUTES = {
 
 ---
 
+## 🛠️ Debugging
+
+Every world ships with a `debug` facade. Opt in with `{ debug: true }` or toggle later via `world.enableDebug(true)` whenever you need visibility:
+
+```js
+const world = new World({ debug: true })
+
+const snapshot = world.debug.inspect(entityId)
+console.log(snapshot.components.Position.diff) // per-component change info
+
+world.debug.forget(entityId) // drop retained history for that entity
+```
+
+Highlights:
+
+- `debug.inspect(id)` stores the latest snapshot and diff per component so you can trace what changed across ticks. Snapshots include `alive`, `removed`, and per-component `changed` flags.
+- `debug.forget(id)` discards the cached history for an entity so future inspections start fresh — handy for large worlds or long-running sessions.
+- `world.enableDebug(false)` leaves the helper in place but stops capturing history until you re-enable it, keeping overhead out of release builds.
+
+Inspection hooks are inert when debug mode is disabled, so you can leave calls in place without paying the cost at runtime.
+
+---
+
 ## 🌳 Hierarchies
 
 ```js
@@ -186,7 +291,7 @@ Works seamlessly with `world.isAlive(id)` (O(1) Set check).
 Prefab-style entity definitions for repeatable or composite setups.
 
 ```js
-import { defineArchetype, compose, createFrom, createMany, cloneFrom } from 'ecs-js/archetype.js'
+import { defineArchetype, compose, createFrom, createMany, cloneFrom, Archetype } from 'ecs-js/archetype.js'
 
 // --- Define a base archetype ---
 export const MovingEntity = defineArchetype('MovingEntity',
@@ -197,6 +302,12 @@ export const MovingEntity = defineArchetype('MovingEntity',
 
 // --- Compose from other archetypes ---
 export const Player = compose('Player', MovingEntity, [Velocity, { dx: 1, dy: 0 }])
+
+// --- Or build fluently ---
+export const FluentPlayer = Archetype('Player')
+  .include(MovingEntity)
+  .add(Velocity, { dx: 1, dy: 0 })
+  .build()
 
 // --- Create entities from archetypes ---
 const e = createFrom(world, Player)
@@ -411,6 +522,42 @@ world.tick(1); world.tick(1); world.tick(1) // emits once at step 3
 console.log(world.get(e, ScriptMeta))
 ```
 
+### Fluent script registration & helpers
+
+Wrap your script definitions in `world.script(id, configure)` to get builder-style ergonomics:
+
+```js
+world
+  .script('pulse', (helper, _world, _eid, args) => {
+    let elapsed = 0
+    return helper
+      .onTick((w, id, dt, ctx) => {
+        elapsed += dt
+        if (elapsed >= (args.period ?? 1)) {
+          elapsed = 0
+          ctx.emit('pulse', { id, at: w.step })
+        }
+      })
+      .damage((w, id, payload, ctx) => ctx.emit('log', { id, text: `took ${payload.amount}` }))
+  })
+  .script('logger', {
+    onTick(w, id, dt, ctx) { /* object literals work too */ }
+  })
+
+world.addScript(e, 'pulse', { period: 0.5 })
+world.entity(e).addScript('logger')     // fluent entity handle
+world.removeScript(e)                   // or world.entity(e).removeScript()
+```
+
+The helper exposes:
+
+- `helper.on(name, fn)` or `helper.someHook(fn)` for named handlers (`onTick`, custom events, etc.).
+- Arbitrary property access is proxied, so `helper.damage(fn)` is shorthand for `helper.on('damage', fn)` — any name you read turns into a handler registration function.
+- `helper.use(factoryOrHandlers)` to compose other handler tables.
+- Access to `helper.world`, `helper.entity`, and `helper.args` so you can stash local state.
+
+`world.scripts.handlersOf(eid)` returns the sanitized handler table, `.refresh()` forces reattachment (useful after hot reloads), and `.clear()` resets the registry between tests. All helpers return the world so you can chain registrations inline with your setup.
+
 Behavior contract: a script factory receives `(world, eid, args)` and returns an object whose function values are handlers. Special name `onTick` is called each scripts phase; other names can be invoked via the event router (see below).
 
 Errors thrown by handlers are captured into `ScriptMeta.lastError`. Re-attaching a script (changing `ScriptRef`) resets `invoked` and updates `version` to `world.step`.
@@ -476,7 +623,7 @@ import { installScriptsAPI, PHASE_SCRIPTS, addScriptTickPhase, makeScriptRouter 
 
 ## 🧠 Notes
 
-* The ECS has no built-in `requestAnimationFrame`, so simulation remains deterministic and replayable.
+* The ECS has no built-in `requestAnimationFrame`, so simulation remains deterministic and replayable (see [RequestAnimationFrame Adapters](#-requestanimationframe-adapters) if you want a ready-made loop).
 * You control the time step (`dt`) passed to `world.tick(dt)`.
 * Rendering is just another system phase (`'render'`), which can use WebGL, Canvas2D, or DOM updates.
 * Works seamlessly with snapshot/replay systems — only the visual layer depends on real time.
@@ -485,7 +632,10 @@ import { installScriptsAPI, PHASE_SCRIPTS, addScriptTickPhase, makeScriptRouter 
 
 ## 📦 Install
 
-git submodule add https://github.com/your-org/ECS.js.git lib/ecs-js git commit -m "Add ecs-js as submodule"
+```bash
+git submodule add https://github.com/PJensen/ECS.js.git lib/ecs-js
+git commit -m "Add ecs-js as submodule"
+```
 
 directly in the browser:
 
@@ -499,17 +649,19 @@ directly in the browser:
 
 | File                      | Purpose                                                   |
 | ------------------------- | --------------------------------------------------------- |
-| **core.js**               | World, Components, Queries, Deferred ops                  |
-| **systems.js**            | System registration, ordering, composition                |
+| **core.js**               | World + builder, debug/logging, components, queries, query builder |
+| **systems.js**            | System registry, fluent phase builder, composition        |
 | **hierarchy.js**          | Parent–child tree operations                              |
 | **serialization.js**      | Snapshot, registry, deserialization                       |
 | **crossWorld.js**         | Entity linking across worlds                              |
 | **archetype.js**          | Prefab-style archetypes and reusable spawn logic          |
 | **rng.js**                | Seeded RNG utilities (mulberry32, helpers)                |
-| **scripts.js**            | First-class scripting (ScriptRef, ScriptMeta, phase)      |
+| **scripts.js**            | First-class scripting (ScriptRef, ScriptMeta, fluent APIs)|
 | **scriptsPhasesExtra.js** | Optional extra script phases and per-entity phase control |
 | **adapters/raf-adapters.js** | requestAnimationFrame loop helpers (realtime & dual-loop) |
 | **adapters/scriptRouter.js** | Route world events to script handlers                    |
+| **index.js**              | Barrel re-export of core, systems, adapters, helpers      |
+| **ecs.d.ts**              | TypeScript declarations for editor/IDE intellisense      |
 
 ---
 

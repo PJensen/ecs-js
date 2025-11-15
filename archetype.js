@@ -174,8 +174,7 @@ export function createDeferred(world, archetype, params = {}) {
  */
 export function withOverrides(archetype, overrides) {
   if (!_isArchetype(archetype)) throw new Error('withOverrides: not an Archetype');
-  const ov = (overrides instanceof Map) ? new Map(overrides) : new Map();
-  if (!(overrides instanceof Map)) for (const k of Object.keys(overrides || {})) ov.set(k, overrides[k]);
+  const ov = _toOverrideMap(overrides) ?? new Map();
   return Object.freeze({ name: archetype.name + '+with', steps: [{ use: archetype, with: ov }] });
 }
 
@@ -203,6 +202,90 @@ export function cloneFrom(world, sourceId, comps = null) {
     return id;
   };
   return world.batch ? world.batch(run) : run();
+}
+
+/**
+ * Fluent builder for archetypes.
+ *
+ * @param {string} name - Name for diagnostics.
+ * @returns {object} Chainable builder with add/use helpers.
+ */
+export function Archetype(name) {
+  const state = {
+    name: String(name || 'Archetype'),
+    steps: [],
+    built: false,
+    lastUse: null
+  };
+
+  const ensureActive = () => {
+    if (state.built) throw new Error('Archetype builder already used');
+  };
+
+  const rememberLastUse = (normalized) => {
+    const tail = normalized[normalized.length - 1];
+    state.lastUse = tail && tail.use && _isArchetype(tail.use) ? tail : null;
+  };
+
+  const pushStep = (step) => {
+    ensureActive();
+    const normalized = _norm([step]);
+    state.steps.push(...normalized);
+    rememberLastUse(normalized);
+  };
+
+  const builder = {
+    add(Comp, init = {}) {
+      pushStep([Comp, init]);
+      return builder;
+    },
+
+    include(...steps) {
+      for (const step of steps) pushStep(step);
+      return builder;
+    },
+
+    step(fn) {
+      pushStep(fn);
+      return builder;
+    },
+
+    run(fn) {
+      return builder.step(fn);
+    },
+
+    use(archetype, overrides = null) {
+      ensureActive();
+      if (!_isArchetype(archetype)) throw new Error('use: expected Archetype');
+      const step = { use: archetype };
+      if (overrides) step.with = _toOverrideMap(overrides);
+      const normalized = _norm([step]);
+      state.steps.push(...normalized);
+      rememberLastUse(normalized);
+      return builder;
+    },
+
+    with(overrides) {
+      ensureActive();
+      if (!state.lastUse) throw new Error('with: no composed archetype to override');
+      const extra = _toOverrideMap(overrides);
+      if (!extra) return builder;
+      state.lastUse.with = _mergeOverrides(state.lastUse.with, extra);
+      return builder;
+    },
+
+    build(rename) {
+      ensureActive();
+      state.built = true;
+      return defineArchetype(rename ?? state.name, ...state.steps);
+    },
+
+    create(rename) {
+      return builder.build(rename);
+    }
+  };
+
+  return builder;
 }
 
 /* internals */
@@ -239,6 +322,14 @@ function _apply(world, id, archetype, params, inheritedOverrides) {
 }
 /** @private */
 function _mergeOverrides(a, b) { if (!a && !b) return null; const m = new Map(); if (a) for (const [k, v] of a) m.set(k, v); if (b) for (const [k, v] of b) m.set(k, v); return m; }
+function _toOverrideMap(overrides) {
+  if (!overrides) return null;
+  if (overrides instanceof Map) return new Map(overrides);
+  const map = new Map();
+  for (const key of Object.keys(overrides)) map.set(key, overrides[key]);
+  for (const sym of Object.getOwnPropertySymbols(overrides)) map.set(sym, overrides[sym]);
+  return map;
+}
 /** @private */
 function _overrideFor(map, Comp) { if (!map) return null; if (map.has(Comp.key)) return map.get(Comp.key); if (map.has(Comp.name)) return map.get(Comp.name); return null; }
 /** @private */

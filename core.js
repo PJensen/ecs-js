@@ -11,8 +11,61 @@
  * - Two store modes: Map-of-records (default) and SoA (struct-of-arrays)
  */
 
-import { registerSystem } from './systems.js';
+import { composeScheduler, registerSystem } from './systems.js';
+import { installScriptsAPI, PHASE_SCRIPTS } from './scripts.js';
 import { mulberry32 } from './rng.js';
+
+const globalConsole = (typeof console !== 'undefined') ? console : null;
+const logError = (globalConsole && typeof globalConsole.error === 'function') ? globalConsole.error.bind(globalConsole) : () => {};
+
+class WorldDebug {
+  constructor(world) {
+    this.world = world;
+    this.enabled = !!world?._debug;
+    this._history = new Map(); // Map<entityId, Map<compKey, snapshot>>
+  }
+
+  enable(on = true) { this.enabled = !!on; return this; }
+
+  inspect(id) {
+    const world = this.world;
+    const alive = world.isAlive(id);
+    const components = {};
+    const removed = [];
+
+    const prev = this._history.get(id) || new Map();
+    const nextHistory = new Map();
+
+    for (const [ckey, Comp] of world._components) {
+      const rec = world.get(id, Comp);
+      if (rec != null) {
+        const snapshot = deepClone(rec);
+        const previous = prev.has(ckey) ? prev.get(ckey) : null;
+        const diff = previous ? diffRecords(previous, snapshot) : null;
+        nextHistory.set(ckey, snapshot);
+        components[Comp.name] = {
+          value: snapshot,
+          changed: world.changed(id, Comp),
+          previous,
+          diff,
+        };
+      } else if (prev.has(ckey)) {
+        removed.push(Comp.name);
+      }
+    }
+
+    if (nextHistory.size) this._history.set(id, nextHistory);
+    else this._history.delete(id);
+
+    return Object.freeze({ id, alive, components, removed });
+  }
+
+  forget(id) {
+    this._history.delete(id);
+    return this;
+  }
+
+}
 
 /**
  * @typedef {object} Component
@@ -96,6 +149,7 @@ export class World {
     this._store = new Map();    // Map<Comp.key, store>
     this._cache = new Map();    // query positive set cache
     this._changed = new Map();  // Map<Comp.key, Set<id>>
+    this._components = new Map(); // Map<Comp.key, Comp>
 
     // command queue for deferred structural mutations
     this._cmd = [];
@@ -109,8 +163,16 @@ export class World {
     this._inTick = false;
     this.strict = !!opts.strict;
     this._debug = !!opts.debug;
+    this._strictHandler = null;
     this.time = 0;
     this.step = 0;
+
+    this.debug = new WorldDebug(this);
+    this.debug.enable(this._debug);
+  }
+
+  static create(opts = {}) {
+    return new WorldBuilder(opts);
   }
 
   /** Install/replace the scheduler. Must be (world, dt) => void.
@@ -130,7 +192,7 @@ export class World {
    * @returns {this}
    */
   system(fn, phase = 'default', opts = {}) {
-    try { registerSystem(fn, phase, opts); } catch (e) { console.warn('[ecs] system registration failed', e); }
+    try { registerSystem(fn, phase, opts); } catch (e) { logError('[ecs] system registration failed', e); }
     return this;
   }
 
@@ -143,10 +205,9 @@ export class World {
     this.time += dt;
     this.step++;
     this._inTick = true;
-
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     try { this.scheduler(this, dt); }
-    catch (e) { console.warn('[ecs] scheduler error', e); }
+    catch (e) { logError('[ecs] scheduler error', e); }
 
     // Flush deferred ops (bounded)
     if (this._cmd.length) {
@@ -165,7 +226,10 @@ export class World {
     this._inTick = false;
 
     const took = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
-    if (typeof this.onTick === 'function') { try { this.onTick(took, this); } catch (e) { console.warn('[ecs] onTick error', e); } }
+    if (typeof this.onTick === 'function') {
+      try { this.onTick(took, this); }
+      catch (e) { logError('[ecs] onTick error', e); }
+    }
   }
 
   /** ===== Entity lifecycle ===== */
@@ -184,8 +248,14 @@ export class World {
   destroy(id) {
     if (!this.alive.has(id)) return false;
     if (this._inTick) {
-      if (this.strict) throw new Error('destroy: structural mutation during tick (strict)');
-      this.command(['destroy', id]); return null;
+      if (this.strict) {
+        const outcome = this._handleStrictDuringTick('destroy', [id], () => {
+          this.command(['destroy', id]);
+        });
+        if (outcome) return null;
+      } else {
+        this.command(['destroy', id]); return null;
+      }
     }
     for (const [k, store] of this._store) { if (store.delete(id)) this._markChanged(k, id); }
     this.alive.delete(id); this._free.push(id);
@@ -208,6 +278,7 @@ export class World {
       const store = (this.storeMode === 'soa') ? makeSoAStore(Comp) : makeMapStore();
       this._store.set(k, store);
     }
+    if (!this._components.has(k)) this._components.set(k, Comp);
     return this._store.get(k);
   }
   _markChanged(ckey, id) {
@@ -227,8 +298,14 @@ export class World {
   add(id, Comp, data) {
     if (!this.alive.has(id)) throw new Error('add: entity not alive');
     if (this._inTick) {
-      if (this.strict) throw new Error('add: structural mutation during tick (strict)');
-      this.command(['add', id, Comp, data]); return null;
+      if (this.strict) {
+        const outcome = this._handleStrictDuringTick('add', [id, Comp, data], () => {
+          this.command(['add', id, Comp, data]);
+        });
+        if (outcome) return null;
+      } else {
+        this.command(['add', id, Comp, data]); return null;
+      }
     }
     const rec = Object.assign({}, deepClone(Comp.defaults), deepClone(data || {}));
     if (typeof Comp.validate === 'function' && !Comp.validate(rec)) throw new Error(`Validation failed for component ${Comp.name}`);
@@ -270,8 +347,14 @@ export class World {
    */
   remove(id, Comp) {
     if (this._inTick) {
-      if (this.strict) throw new Error('remove: structural mutation during tick (strict)');
-      this.command(['remove', id, Comp]); return null;
+      if (this.strict) {
+        const outcome = this._handleStrictDuringTick('remove', [id, Comp], () => {
+          this.command(['remove', id, Comp]);
+        });
+        if (outcome) return null;
+      } else {
+        this.command(['remove', id, Comp]); return null;
+      }
     }
     const ok = this._mapFor(Comp).delete(id);
     if (ok) { this._markChanged(Comp.key, id); this._invalidateCaches(); }
@@ -287,8 +370,14 @@ export class World {
    */
   set(id, Comp, patch) {
     if (this._inTick) {
-      if (this.strict) throw new Error('set: mutation during tick (strict)');
-      this.command(['set', id, Comp, patch]); return null;
+      if (this.strict) {
+        const outcome = this._handleStrictDuringTick('set', [id, Comp, patch], () => {
+          this.command(['set', id, Comp, patch]);
+        });
+        if (outcome) return null;
+      } else {
+        this.command(['set', id, Comp, patch]); return null;
+      }
     }
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('set: entity lacks component');
@@ -307,8 +396,14 @@ export class World {
    */
   mutate(id, Comp, fn) {
     if (this._inTick) {
-      if (this.strict) throw new Error('mutate: mutation during tick (strict)');
-      this.command(['mutate', id, Comp, fn]); return null;
+      if (this.strict) {
+        const outcome = this._handleStrictDuringTick('mutate', [id, Comp, fn], () => {
+          this.command(['mutate', id, Comp, fn]);
+        });
+        if (outcome) return null;
+      } else {
+        this.command(['mutate', id, Comp, fn]); return null;
+      }
     }
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('mutate: entity lacks component');
@@ -330,6 +425,62 @@ export class World {
     let opts = null;
     if (terms.length && this._isOpts(terms[terms.length - 1])) opts = terms.pop();
     const spec = normalizeTerms(terms);
+    return this._executeQuery(spec, opts);
+  }
+
+  defineQuery(...terms) {
+    let opts = null;
+    if (terms.length && this._isOpts(terms[terms.length - 1])) opts = terms.pop();
+    const spec = normalizeTerms(terms);
+    const baseOpts = opts ? { ...opts } : null;
+    const world = this;
+
+    const mergeOpts = (a, b) => {
+      if (!a && !b) return null;
+      const res = { ...(a || {}) };
+      if (b) Object.assign(res, b);
+      return res;
+    };
+
+    const makeHandle = (state) => {
+      const snapshot = state ? { ...state } : null;
+      const handle = (runtime) => {
+        const finalOpts = mergeOpts(snapshot, runtime);
+        return world._executeQuery(spec, finalOpts);
+      };
+      const chain = (key, value) => {
+        const nextState = Object.assign({}, snapshot || {});
+        nextState[key] = value;
+        return makeHandle(nextState);
+      };
+      handle.where = (fn) => chain('where', fn);
+      handle.project = (fn) => chain('project', fn);
+      handle.orderBy = (fn) => chain('orderBy', fn);
+      handle.offset = (n) => chain('offset', n);
+      handle.limit = (n) => chain('limit', n);
+      handle.options = () => snapshot ? { ...snapshot } : {};
+      handle.spec = spec;
+      handle.world = world;
+      return handle;
+    };
+
+    return makeHandle(baseOpts);
+  }
+
+  /** Generator form of query yielding [id, ...components].
+   * @param {...(Component|ReturnType<typeof Not>|ReturnType<typeof Changed>)} terms
+   */
+  *queryGen(...terms) {
+    const spec = normalizeTerms(terms);
+    const list = this._cachedEntityList(spec, spec.cacheKey);
+    for (let i = 0; i < list.length; i++) {
+      const id = list[i];
+      if (!passesDynamicFilters(this, id, spec)) continue;
+      yield [id, ...spec.all.map(c => this.get(id, c))];
+    }
+  }
+
+  _executeQuery(spec, opts) {
     const key = spec.cacheKey;
     const baseList = this._cachedEntityList(spec, key);
 
@@ -403,19 +554,6 @@ export class World {
     return tuples;
   }
 
-  /** Generator form of query yielding [id, ...components].
-   * @param {...(Component|ReturnType<typeof Not>|ReturnType<typeof Changed>)} terms
-   */
-  *queryGen(...terms) {
-    const spec = normalizeTerms(terms);
-    const list = this._cachedEntityList(spec, spec.cacheKey);
-    for (let i = 0; i < list.length; i++) {
-      const id = list[i];
-      if (!passesDynamicFilters(this, id, spec)) continue;
-      yield [id, ...spec.all.map(c => this.get(id, c))];
-    }
-  }
-
   _tuplesFromList(list, spec) {
     const self = this;
     function* iter() {
@@ -456,11 +594,62 @@ export class World {
   /** Unsubscribe a listener. @param {string} event @param {(payload:any)=>void} fn */
   off(event, fn) { const set = this._ev?.get(event); if (set) set.delete(fn); }
   /** Emit an event to listeners. @param {string} event @param {any} payload @returns {number} count of listeners invoked */
-  emit(event, payload) { const set = this._ev?.get(event); if (!set) return 0; let n = 0; for (const f of set) { try { f(payload, this); n++; } catch (e) { console.warn('event error', e); } } return n; }
+  emit(event, payload) {
+    const set = this._ev?.get(event);
+    if (!set) return 0;
+    let n = 0;
+    for (const f of set) {
+      try { f(payload, this); n++; }
+      catch (e) { logError('event error', e); }
+    }
+    return n;
+  }
 
   /** ===== Deferral ===== */
   /** Queue a deferred operation or function to run outside of tick context. @param {any} opOrFn */
   command(opOrFn) { this._cmd.push(opOrFn); return this; }
+
+  /** Return a snapshot of pending deferred operations. Useful for debugging. */
+  pendingOps() { return this._cmd.slice(); }
+
+  /** Install a strict-mode handler invoked when structural mutations occur mid-tick in strict worlds.
+   * Handler receives a context object ({ op, args, world, error, defer }).
+   * Call ctx.defer() or return 'defer' to queue the operation despite strict mode.
+   * Return 'ignore' (or false) to swallow the mutation. Throw to propagate custom errors.
+   * @param {(ctx:{ op:string, args:readonly any[], world:World, error:Error, defer:()=>void })=>('defer'|'ignore'|false|void)} fn
+   * @returns {this}
+   */
+  onStrictError(fn) {
+    if (fn != null && typeof fn !== 'function') throw new Error('onStrictError: handler must be a function or null');
+    this._strictHandler = fn || null;
+    return this;
+  }
+
+  _handleStrictDuringTick(op, args, fallback) {
+    const error = new Error(`${op}: structural mutation during tick (strict)`);
+    if (typeof this._strictHandler === 'function') {
+      let deferred = false;
+      const ctx = {
+        op,
+        args: Object.freeze([...args]),
+        world: this,
+        error,
+        defer: () => {
+          if (!deferred && typeof fallback === 'function') fallback();
+          deferred = true;
+        }
+      };
+      try {
+        const res = this._strictHandler(ctx);
+        if (res === 'defer' && !deferred) ctx.defer();
+        if (deferred) return 'defer';
+        if (res === 'ignore' || res === false) return 'ignore';
+      } catch (handlerErr) {
+        logError('[ecs] strict handler error', handlerErr);
+      }
+    }
+    throw error;
+  }
   _applyOp(op) {
     try {
       if (typeof op === 'function') return op();
@@ -470,7 +659,7 @@ export class World {
       if (t === 'remove')  return this.remove(op[1], op[2]);
       if (t === 'set')     return this.set(op[1], op[2], op[3]);
       if (t === 'mutate')  return this.mutate(op[1], op[2], op[3]);
-    } catch (e) { console.warn('applyOp error', e); }
+    } catch (e) { logError('applyOp error', e); }
   }
 
   /** ===== Diagnostics ===== */
@@ -479,7 +668,95 @@ export class World {
   /** Has the entity's component changed since last tick? @param {number} id @param {Component} Comp @returns {boolean} */
   changed(id, Comp) { const s = this._changed.get(Comp.key); return !!(s && s.has(id)); }
   /** Enable or disable debug mode. @param {boolean} [on=true] @returns {this} */
-  enableDebug(on = true) { this._debug = !!on; return this; }
+  enableDebug(on = true) {
+    this._debug = !!on;
+    if (this.debug) this.debug.enable(this._debug);
+    return this;
+  }
+}
+
+export class WorldBuilder {
+  constructor(opts = {}) {
+    this._opts = { ...(opts || {}) };
+    this._systems = [];
+    this._installers = [];
+    this._schedulerSteps = [];
+    this._customScheduler = null;
+    this._requiredPhases = new Set();
+    this._strictHandlers = [];
+  }
+
+  useSoA() { this._opts.store = 'soa'; return this; }
+  useMap() { this._opts.store = 'map'; return this; }
+  withSeed(seed) { this._opts.seed = seed >>> 0; return this; }
+  enableStrict(on = true) { this._opts.strict = !!on; return this; }
+  enableDebug(on = true) { this._opts.debug = !!on; return this; }
+  withOptions(opts = {}) { Object.assign(this._opts, opts || {}); return this; }
+  withScheduler(...steps) { this._customScheduler = null; this._schedulerSteps = steps.flat().filter(Boolean); return this; }
+  withSchedulerFn(fn) {
+    if (typeof fn !== 'function') throw new Error('withSchedulerFn: scheduler must be a function');
+    this._customScheduler = fn;
+    return this;
+  }
+  withPhases(...phases) {
+    phases.flat().forEach(ph => { if (typeof ph === 'string' && ph) this._requiredPhases.add(ph); });
+    return this;
+  }
+  system(fn, phase = 'default', opts = {}) {
+    this._systems.push({ fn, phase, opts });
+    return this;
+  }
+  install(installer) {
+    if (typeof installer !== 'function') throw new Error('install: installer must be a function');
+    this._installers.push(installer);
+    return this;
+  }
+  onStrictError(fn) { this._strictHandlers.push(fn); return this; }
+  useScripts(options = {}) {
+    const scriptOptions = { ...(options || {}) };
+    const installer = (world) => installScriptsAPI(world, scriptOptions);
+    this._installers.push(installer);
+    if (scriptOptions.autoPhase !== false) {
+      const phase = scriptOptions.phase || PHASE_SCRIPTS;
+      this.withPhases(phase);
+    }
+    return this;
+  }
+  build() {
+    const world = new World(this._opts);
+    for (const fn of this._strictHandlers) world.onStrictError(fn);
+    for (const { fn, phase, opts } of this._systems) world.system(fn, phase, opts);
+    if (this._customScheduler) {
+      world.setScheduler(this._customScheduler);
+    } else {
+      const steps = [...this._schedulerSteps];
+      this._requiredPhases.forEach(ph => { if (!steps.includes(ph)) steps.push(ph); });
+      if (steps.length) world.setScheduler(composeScheduler(...steps));
+    }
+    for (const inst of this._installers) inst(world);
+    return world;
+  }
+}
+
+export function Component(name) {
+  if (typeof name !== 'string' || !name) throw new Error('Component builder requires a non-empty name');
+  const state = { name, defaults: {}, validate: null, tag: false };
+  const builder = {
+    defaults(obj = {}) { state.defaults = { ...(obj || {}) }; return builder; },
+    validate(fn) { if (typeof fn !== 'function') throw new Error('Component.validate expects a function'); state.validate = fn; return builder; },
+    taggable() { state.tag = true; return builder.build(); },
+    tag() { return builder.taggable(); },
+    build() {
+      const opts = state.validate ? { validate: state.validate } : undefined;
+      if (state.tag) {
+        const tagComp = defineTag(state.name);
+        return tagComp;
+      }
+      return defineComponent(state.name, state.defaults, opts);
+    },
+    create() { return builder.build(); }
+  };
+  return builder;
 }
 
 /** ===== Query helpers ===== */
@@ -566,6 +843,51 @@ function deepClone(v) {
   const out = {};
   for (const k of Object.keys(v)) out[k] = deepClone(v[k]);
   return out;
+}
+
+function deepEqual(a, b) {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
+    return true;
+  }
+  if (a && b && typeof a === 'object') {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    const seen = new Set([...keysA, ...keysB]);
+    for (const key of seen) {
+      if (!Object.prototype.hasOwnProperty.call(a, key) || !Object.prototype.hasOwnProperty.call(b, key)) return false;
+      if (!deepEqual(a[key], b[key])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function diffRecords(prev = {}, next = {}) {
+  const added = {};
+  const removed = {};
+  const changed = {};
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  for (const key of keys) {
+    const inPrev = Object.prototype.hasOwnProperty.call(prev, key);
+    const inNext = Object.prototype.hasOwnProperty.call(next, key);
+    if (!inPrev && inNext) {
+      added[key] = next[key];
+    } else if (inPrev && !inNext) {
+      removed[key] = prev[key];
+    } else if (inPrev && inNext && !deepEqual(prev[key], next[key])) {
+      changed[key] = { before: prev[key], after: next[key] };
+    }
+  }
+  const result = {};
+  if (Object.keys(added).length) result.added = added;
+  if (Object.keys(removed).length) result.removed = removed;
+  if (Object.keys(changed).length) result.changed = changed;
+  return Object.keys(result).length ? result : null;
 }
 
 /** Sorted intersection helper. */
