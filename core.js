@@ -856,10 +856,7 @@ function deepEqual(a, b) {
   if (a && b && typeof a === 'object') {
     const keysA = Object.keys(a);
     const keysB = Object.keys(b);
-    if (keysA.length !== keysB.length) {
-      for (const k of keysA) if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-      for (const k of keysB) if (!Object.prototype.hasOwnProperty.call(a, k)) return false;
-    }
+    if (keysA.length !== keysB.length) return false;
     const seen = new Set([...keysA, ...keysB]);
     for (const key of seen) {
       if (!Object.prototype.hasOwnProperty.call(a, key) || !Object.prototype.hasOwnProperty.call(b, key)) return false;
