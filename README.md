@@ -5,9 +5,11 @@ Alpha Release Coming Soon!
 Entity–Component–System architecture for JavaScript
 Zero dependencies. No build step. Deterministic, phase-agnostic, and caller-driven — your loop, your rules.
 
+Purpose-built for agents of all kinds — from autonomous copilots to code-canvas assistants — so they can reason about worlds step-by-step while driving real-time or discrete simulations with confidence.
+
 Suitable for both discrete-event and real-time updates.
 
-`ecs-js` is a minimal, browser-friendly ECS core designed for simulations, roguelikes, and other logic-driven systems that demand determinism and composability.
+`ecs-js` is a minimal, browser-friendly ECS core designed for simulations, roguelikes, and other logic-driven systems that demand determinism and composability, especially when agents need transparent, step-based control.
 
 ---
 
