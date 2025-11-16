@@ -1,0 +1,29 @@
+{
+  "name": "ecs-js",
+  "version": "0.0.1",
+  "description": "Deterministic, phase-agnostic ECS core for JavaScript with zero dependencies and agent-friendly ergonomics.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "exports": "./dist/index.js",
+  "types": "ecs.d.ts",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "ecs.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build-dist.js",
+    "test": "node scripts/run-tests.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/petejohanson/ecs-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/petejohanson/ecs-js/issues"
+  },
+  "homepage": "https://github.com/petejohanson/ecs-js#readme"
+}
