@@ -137,7 +137,6 @@ function _visualizePhases(phases) {
 
   for (const phase of phases) {
     const ordered = getOrderedSystems(phase);
-    const records = _systems[phase] || [];
     if (!ordered.length) continue;
     const clusterId = `cluster_${phase}`;
     lines.push(`  subgraph "${escapeLabel(clusterId)}" {`);

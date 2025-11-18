@@ -433,7 +433,6 @@ export class World {
     if (terms.length && this._isOpts(terms[terms.length - 1])) opts = terms.pop();
     const spec = normalizeTerms(terms);
     const baseOpts = opts ? { ...opts } : null;
-    const world = this;
 
     const mergeOpts = (a, b) => {
       if (!a && !b) return null;
@@ -446,7 +445,7 @@ export class World {
       const snapshot = state ? { ...state } : null;
       const handle = (runtime) => {
         const finalOpts = mergeOpts(snapshot, runtime);
-        return world._executeQuery(spec, finalOpts);
+        return this._executeQuery(spec, finalOpts);
       };
       const chain = (key, value) => {
         const nextState = Object.assign({}, snapshot || {});
@@ -460,7 +459,7 @@ export class World {
       handle.limit = (n) => chain('limit', n);
       handle.options = () => snapshot ? { ...snapshot } : {};
       handle.spec = spec;
-      handle.world = world;
+      handle.world = this;
       return handle;
     };
 
@@ -486,9 +485,9 @@ export class World {
 
     if (!opts) {
       const tuples = this._tuplesFromList(baseList, spec);
-      const self = this;
-      tuples.run = (fn) => { for (const row of tuples) fn(...row); return self; };
-      tuples.count = (o) => (o && o.cheap) ? baseList.length : countFiltered(self, baseList, spec);
+      tuples._world = this;
+      tuples.run = function(fn) { for (const row of tuples) fn(...row); return this._world; };
+      tuples.count = function(o) { return (o && o.cheap) ? baseList.length : countFiltered(this._world, baseList, spec); };
       return tuples;
     }
 
@@ -512,8 +511,8 @@ export class World {
 
       let idx = 0, start = Math.max(0, ~~(opts.offset || 0));
       const lim = (opts.limit == null) ? Infinity : Math.max(0, ~~opts.limit);
-      const self = this;
       return {
+        _world: this,
         [Symbol.iterator]() {
           let used = 0;
           return {
@@ -528,41 +527,39 @@ export class World {
             }
           };
         },
-        run(fn) { for (const row of this) fn(row); return self; },
+        run(fn) { for (const row of this) fn(row); return this._world; },
         count(o) { return (o && o.cheap) ? baseList.length : rows.length; }
       };
     }
 
     const start = Math.max(0, ~~(opts.offset || 0));
     const lim = (opts.limit == null) ? Infinity : Math.max(0, ~~opts.limit);
-    const self = this;
-    function* iter() {
+    const iter = function* () {
       let seen = 0, used = 0;
       for (let i = 0; i < list.length; i++) {
         const id = list[i];
-        if (!passesDynamicFilters(self, id, spec)) continue;
-        const comps = spec.all.map(c => self.get(id, c));
+        if (!passesDynamicFilters(this, id, spec)) continue;
+        const comps = spec.all.map(c => this.get(id, c));
         if (where && !where(...comps, id)) continue;
         if (seen++ < start) continue;
         if (used++ >= lim) break;
         yield project ? project(id, ...comps) : [id, ...comps];
       }
-    }
-    const tuples = { [Symbol.iterator]: iter };
-    tuples.run = (fn) => { for (const row of tuples) fn(row); return self; };
-    tuples.count = (o) => (o && o.cheap) ? list.length : countFiltered(self, list, spec, where);
+    }.bind(this);
+    const tuples = { _world: this, [Symbol.iterator]: iter };
+    tuples.run = function(fn) { for (const row of tuples) fn(row); return this._world; };
+    tuples.count = (o) => (o && o.cheap) ? list.length : countFiltered(this, list, spec, where);
     return tuples;
   }
 
   _tuplesFromList(list, spec) {
-    const self = this;
-    function* iter() {
+    const iter = function* () {
       for (let i = 0; i < list.length; i++) {
         const id = list[i];
-        if (!passesDynamicFilters(self, id, spec)) continue;
-        yield [id, ...spec.all.map(c => self.get(id, c))];
+        if (!passesDynamicFilters(this, id, spec)) continue;
+        yield [id, ...spec.all.map(c => this.get(id, c))];
       }
-    }
+    }.bind(this);
     return { [Symbol.iterator]: iter };
   }
 
@@ -835,7 +832,7 @@ function makeSoAStore(Comp) {
 
 /** Deep clone for component defaults/data (keeps host objects by ref). */
 function deepClone(v) {
-  if (typeof structuredClone === 'function') { try { return structuredClone(v); } catch {} }
+  if (typeof structuredClone === 'function') { try { return structuredClone(v); } catch { /* structuredClone not supported */ } }
   if (v === null || typeof v !== 'object') return v;
   if (Array.isArray(v)) return v.map(deepClone);
   const proto = Object.getPrototypeOf(v);

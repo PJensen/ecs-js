@@ -32,7 +32,7 @@ const _registry = new Map();          // id -> factory(world, eid, args) => hand
 const _handlersByEntity = new Map();  // eid -> { [hookName]: function }
 
 function _sanitizeHandlers(h) { const o = {}; for (const k in (h || {})) if (typeof h[k] === 'function') o[k] = h[k]; return o; }
-function _ctx(world, id) { return { rand: world.rand, emit: (ev, p) => world.emit(ev, p) }; }
+function _ctx(world, _id) { return { rand: world.rand, emit: (ev, p) => world.emit(ev, p) }; }
 function _noteErr(world, id, e) { const msg = (e && e.stack) ? e.stack : String(e); world.has(id, ScriptMeta) ? world.set(id, ScriptMeta, { lastError: msg }) : world.add(id, ScriptMeta, { lastError: msg }); }
 function _bump(world, id) { if (world.has(id, ScriptMeta)) world.mutate(id, ScriptMeta, m => { m.invoked++; }); }
 
@@ -113,7 +113,7 @@ class ScriptEntityHandle {
     }
 }
 
-function ScriptAttachSystem(world, dt) {
+function ScriptAttachSystem(world, _dt) {
     // (Re)attach handlers when ScriptRef changes
     for (const [id, sref] of world.query(ScriptRef, Changed(ScriptRef))) {
         try {

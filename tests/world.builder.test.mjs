@@ -1,6 +1,6 @@
 import { assert, test } from './testlib.js';
 
-import { World, WorldBuilder, Component } from '../core.js';
+import { World, WorldBuilder as _WorldBuilder, Component } from '../core.js';
 import { ScriptRef, ScriptMeta } from '../scripts.js';
 
 test('World builder configures world, scheduler, and scripts API', () => {

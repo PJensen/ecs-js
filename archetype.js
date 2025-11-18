@@ -117,9 +117,8 @@ export function compose(name, ...parts) {
  */
 export function createFrom(world, archetype, params = {}) {
   if (!_isArchetype(archetype)) throw new Error('createFrom: not an Archetype');
-  let created = 0;
   const run = () => {
-    const id = world.create(); created = id;
+    const id = world.create();
     _apply(world, id, archetype, params, null);
     return id;
   };
@@ -339,7 +338,7 @@ function _allComponentsOn(world, id) {
   if (stores && typeof stores[Symbol.iterator] === 'function') {
     for (const entry of stores) {
       const store = Array.isArray(entry) ? entry[1] : entry;
-      try { if (store && typeof store.has === 'function' && store.has(id)) { if (store._comp) out.push(store._comp); } } catch {}
+      try { if (store && typeof store.has === 'function' && store.has(id)) { if (store._comp) out.push(store._comp); } } catch { /* ignore store probe errors */ }
     }
   }
   return out;

@@ -16,7 +16,7 @@ export const assert = {
 };
 
 export function test(name, fn) {
-  Deno.test(name, async (t) => {
+  Deno.test(name, async (_t) => {
     const cleanups = [];
     const ctx = {
       after(cb) {

@@ -2,7 +2,7 @@ import { assert, test } from './testlib.js';
 
 import { registerSystem, Systems } from '../systems.js';
 
-test('Systems.visualizeGraph emits DOT output for multiple phases', async (t) => {
+test('Systems.visualizeGraph emits DOT output for multiple phases', (t) => {
   function alpha() {}
   function beta() {}
   function gamma() {}
@@ -101,7 +101,6 @@ test('Systems.visualizeGraph emits DOT output for multiple phases', async (t) =>
   assert.match(dot, /cleanupPhase_1" -> "cleanupPhase_2" \[label="order"\]/);
 
   // Constraint edges (dotted lines)
-	const dotted = /\[label="(before|after)", style="dotted", color="gray50", constraint=false, arrowhead="lvee", arrowsize=0\.8\]/;
   assert.match(dot, /vizPhase_2" -> "vizPhase_1" \[label="before", style="dotted", color="gray50", constraint=false, arrowhead="lvee", arrowsize=0.8\]/);
   assert.match(dot, /vizPhase_3" -> "vizPhase_1" \[label="before", style="dotted", color="gray50", constraint=false, arrowhead="lvee", arrowsize=0.8\]/);
   assert.match(dot, /vizPhase_1" -> "vizPhase_0" \[label="before", style="dotted", color="gray50", constraint=false, arrowhead="lvee", arrowsize=0.8\]/);

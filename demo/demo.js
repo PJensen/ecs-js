@@ -8,16 +8,16 @@ import {
   defineArchetype, compose, createFrom, createMany, createDeferred, withOverrides, cloneFrom
 } from '../archetype.js';
 import {
-  registerSystem, setSystemOrder, getOrderedSystems, runSystems, runPhases, composeScheduler, clearSystems
+  registerSystem, setSystemOrder, getOrderedSystems, composeScheduler, clearSystems
 } from '../systems.js';
 import {
-  Parent, Sibling, ensureParent, isChild, getParent, children, childrenWith, childCount, attach, detach, destroySubtree, reparent, indexOf, nthChild
+  Parent, Sibling, ensureParent, childCount, attach, indexOf, nthChild
 } from '../hierarchy.js';
 import {
   createCrossWorldReference, isCrossWorldReferenceValid, resolveCrossWorldReference
 } from '../crossWorld.js';
 import {
-  makeRegistry, serializeWorld, serializeEntities, serializeEntity, deserializeWorld, applySnapshot
+  makeRegistry, serializeWorld, deserializeWorld
 } from '../serialization.js';
 
 const out = document.getElementById('out');
@@ -45,7 +45,7 @@ const Actor = defineArchetype('Actor',
   [Health,   { hp: 12, max: 12 }],
   (w, id, p) => w.add(id, Name, { value: p.name ?? 'actor' })
 );
-const VisibleActor = withOverrides(Actor, { Visible: {}, Health: (p, w, id, base) => ({ ...base, hp: Math.min(base.max, base.hp + 3) }) });
+const VisibleActor = withOverrides(Actor, { Visible: {}, Health: (_p, _w, _id, base) => ({ ...base, hp: Math.min(base.max, base.hp + 3) }) });
 const ActorPlus = compose('ActorPlus', Actor, [Visible, {}]);
 
 const a1 = createFrom(world, Actor, { name: 'hero', x: 2, y: 3 });
@@ -59,8 +59,8 @@ log('createDeferred scheduled (will materialize on tick)');
 clearSystems();
 const intentPhase = 'intent', updatePhase = 'update', renderPhase = 'render';
 registerSystem((w)=>{ w.emit('spawn', { phase:intentPhase }); }, intentPhase);
-registerSystem((w)=>{ for (const [id, pos] of w.query(Position)) { pos.x += 1; } }, updatePhase);
-registerSystem((w)=>{ /* no-op render */ }, renderPhase);
+registerSystem((w)=>{ for (const [_id, pos] of w.query(Position)) { pos.x += 1; } }, updatePhase);
+registerSystem((_w)=>{ /* no-op render */ }, renderPhase);
 setSystemOrder(updatePhase, getOrderedSystems(updatePhase));
 
 world.setScheduler(composeScheduler(intentPhase, updatePhase, renderPhase));

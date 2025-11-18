@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any ban-types -- JS-first API surface keeps permissive d.ts for ergonomics
 export type StoreMode = 'map' | 'soa';
 
 export type FrameRequestCallback = (timestamp: number) => void;

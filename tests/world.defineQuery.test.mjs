@@ -24,7 +24,7 @@ test('defineQuery creates reusable handles with chaining', () => {
 
   const ordered = world.defineQuery(Position, Velocity)
     .orderBy((a, b) => a.comps[0].x - b.comps[0].x)
-    .project((id, pos, vel) => ({ id, speed: vel.x + vel.y }));
+    .project((id, _pos, vel) => ({ id, speed: vel.x + vel.y }));
 
   const orderedRows = [...ordered()];
   assert.deepEqual(orderedRows, [
