@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Lint
+        run: deno lint --ignore=dist
+
+      - name: Test
+        run: deno test --allow-read tests/
+
+      - name: Build bundle (local parity)
+        env:
+          ESBUILD_VERSION: 0.27.0
+        run: ./build-local.sh 0.0.0-ci
