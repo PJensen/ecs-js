@@ -1,5 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { assert, test } from './testlib.js';
 
 import { World, WorldBuilder, Component } from '../core.js';
 import { ScriptRef, ScriptMeta } from '../scripts.js';

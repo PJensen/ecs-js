@@ -1,8 +1,5 @@
-/**
- * Run with: `node tests/serialization.snapshots.test.mjs`
- */
-import test from 'node:test';
-import assert from 'node:assert/strict';
+// Run with: `deno test --allow-read tests/serialization.snapshots.test.mjs`
+import { assert, test } from './testlib.js';
 
 import { World, defineComponent, defineTag } from '../core.js';
 import {

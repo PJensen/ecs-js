@@ -814,6 +814,7 @@ function makeSoAStore(Comp) {
     const obj = {};
     for (const f of fields) {
       Object.defineProperty(obj, f, {
+        enumerable: true,
         get() { return arrays[f][id] ?? Comp.defaults[f]; },
         set(v) { arrays[f][id] = v; }
       });

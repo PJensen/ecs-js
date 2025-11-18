@@ -120,23 +120,43 @@ export function clearSystems() {
 }
 
 function _visualizePhases(phases) {
-  const lines = ['digraph Systems {', '  rankdir=LR;'];
-  const edges = new Set();
-  const nodeIds = new Map();
+  const lines = ['digraph Systems {', '  rankdir=TB;'];
+  const edges = [];
+  const seenEdges = new Set(); // `${from}::${to}::${label}::${JSON.stringify(attrs)}`
+  const nodeIds = new Map(); // system fn -> node id
+  const phaseFirstNodes = new Map();
+  const phaseLastNodes = new Map();
+
+  function addEdge(from, to, label, attrs = {}) {
+    if (!from || !to) return;
+    const key = `${from}::${to}::${label}::${JSON.stringify(attrs)}`;
+    if (seenEdges.has(key)) return;
+    seenEdges.add(key);
+    edges.push({ from, to, label, attrs });
+  }
 
   for (const phase of phases) {
-    const nodes = _systems[phase] || [];
-    if (!nodes.length) continue;
+    const ordered = getOrderedSystems(phase);
+    const records = _systems[phase] || [];
+    if (!ordered.length) continue;
     const clusterId = `cluster_${phase}`;
     lines.push(`  subgraph "${escapeLabel(clusterId)}" {`);
-    lines.push(`    label="${escapeLabel(phase)}";`);
-    nodes.forEach(({ system }, idx) => {
+    lines.push(`    label=<<FONT POINT-SIZE="16"><B>${escapeLabel(phase)}</B></FONT>>;`);
+    lines.push('    fontname="Helvetica";');
+    lines.push('    rank=same;');
+    lines.push('    { rank=same;');
+    ordered.forEach((system, idx) => {
       const nodeId = `${phase}_${idx}`;
       nodeIds.set(system, nodeId);
-      const label = system && system.name ? system.name : `fn@${idx}`;
-      lines.push(`    "${escapeLabel(nodeId)}" [label="${escapeLabel(label)}"];`);
+      const baseLabel = system && system.name ? system.name : `fn@${idx}`;
+      lines.push(`      "${escapeLabel(nodeId)}" [label="${escapeLabel(baseLabel)}"];`);
     });
+    lines.push('    }');
     lines.push('  }');
+    if (ordered.length) {
+      phaseFirstNodes.set(phase, nodeIds.get(ordered[0]));
+      phaseLastNodes.set(phase, nodeIds.get(ordered[ordered.length - 1]));
+    }
   }
 
   for (const phase of phases) {
@@ -145,33 +165,54 @@ function _visualizePhases(phases) {
       const fromId = nodeIds.get(system);
       if (!fromId) return;
       for (const dep of before) {
-        const toId = nodeIds.get(dep);
-        if (toId) edges.add(`  "${escapeLabel(fromId)}" -> "${escapeLabel(toId)}" [label="before"];`);
+        const depId = nodeIds.get(dep);
+        // Constraint: dep depends on system being before it (dep -> system).
+        addEdge(depId, fromId, 'before', { style: 'dotted', color: 'gray50', constraint: false, arrowhead: 'lvee', arrowsize: 0.8 });
       }
       for (const dep of after) {
-        const toId = nodeIds.get(dep);
-        if (toId) edges.add(`  "${escapeLabel(toId)}" -> "${escapeLabel(fromId)}" [label="after"];`);
+        const depId = nodeIds.get(dep);
+        // Constraint: system depends on dep occurring before it (system -> dep).
+        addEdge(fromId, depId, 'after', { style: 'dotted', color: 'gray50', constraint: false, arrowhead: 'lvee', arrowsize: 0.8 });
       }
     });
 
-    const order = _explicitOrder[phase];
-    if (order && order.length > 1) {
-      for (let i = 0; i < order.length - 1; i++) {
-        const a = nodeIds.get(order[i]);
-        const b = nodeIds.get(order[i + 1]);
-        if (a && b) edges.add(`  "${escapeLabel(a)}" -> "${escapeLabel(b)}" [label="order"];`);
-      }
+    const ordered = getOrderedSystems(phase);
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const a = nodeIds.get(ordered[i]);
+      const b = nodeIds.get(ordered[i + 1]);
+      addEdge(a, b, 'order');
     }
   }
 
-  lines.push(...edges);
+  // Phase connectors: last system in phase -> first system in next phase.
+  for (let i = 0; i < phases.length - 1; i++) {
+    const from = phaseLastNodes.get(phases[i]);
+    const to = phaseFirstNodes.get(phases[i + 1]);
+    addEdge(from, to, 'phase');
+  }
+
+  for (const { from, to, label, attrs } of edges) {
+    const parts = [`label="${escapeLabel(label)}"`];
+    if (attrs.style) parts.push(`style="${attrs.style}"`);
+    if (attrs.color) parts.push(`color="${attrs.color}"`);
+    if (attrs.constraint === false) parts.push('constraint=false');
+    if (attrs.arrowhead) parts.push(`arrowhead="${attrs.arrowhead}"`);
+    if (attrs.arrowsize) parts.push(`arrowsize=${attrs.arrowsize}`);
+    const attrStr = parts.join(', ');
+    lines.push(`  "${escapeLabel(from)}" -> "${escapeLabel(to)}" [${attrStr}];`);
+  }
   lines.push('}');
   return lines.join('\n');
 }
 
 export function visualizeGraph(options = {}) {
-  const phases = options && options.phase ? [options.phase] : Object.keys(_systems);
-  return _visualizePhases(phases);
+  const { phase, phases } = options || {};
+  let phaseList;
+  if (Array.isArray(phase)) phaseList = phase;
+  else if (phase) phaseList = [phase];
+  else if (Array.isArray(phases)) phaseList = phases;
+  else phaseList = Object.keys(_systems);
+  return _visualizePhases(phaseList);
 }
 
 class PhaseBuilder {

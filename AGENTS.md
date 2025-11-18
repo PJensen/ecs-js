@@ -57,7 +57,7 @@ The rest of this file is the dual-purpose cookbook: follow it to maintain the re
 - `adapters/` — optional integration helpers (script router, timeline utilities). Scan when bridging to external tools.
 - `hierarchy.js` / `crossWorld.js` — parenting helpers and cross-world references for multi-scene orchestration.
 - `archetype.js` — prefab builder APIs (`defineArchetype`, `Archetype()` fluent). Useful when agents need to batch-spawn entities.
-- `tests/` — deterministic transcripts. Add scenario files here so future agents can replay and diff.
+- `tests/` — deterministic transcripts. Add scenario files here so future agents can replay and diff. Run with `deno test --allow-read tests/`.
 - `demo/` — runnable sandboxes that double as reality checks for API additions.
 
 ### Daily maintenance loop

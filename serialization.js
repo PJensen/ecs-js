@@ -127,6 +127,15 @@ export function applySnapshot(world, data, registry, opts = {}) {
   const mapNameToComp = _normalizeRegistry(registry);
   const remap = opts.remapId || null;
 
+  // Validate unknown components before mutating the world to avoid partial application.
+  if (!opts.skipUnknown) {
+    for (const name of Object.keys(data.comps || {})) {
+      if (!mapNameToComp.has(name)) {
+        throw new Error(`applySnapshot: unknown component '${name}'`);
+      }
+    }
+  }
+
   return world.batch?.(() => _apply()) ?? _apply();
 
   function _apply() {
