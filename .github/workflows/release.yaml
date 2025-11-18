@@ -13,6 +13,7 @@ jobs:
       contents: write
     env:
       ESBUILD_VERSION: 0.27.0  # matches scoped @esbuild/* binaries
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
