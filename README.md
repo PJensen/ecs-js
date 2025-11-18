@@ -1,4 +1,4 @@
-Alpha Release Coming Soon!
+Alpha Release Coming Soon! (Tues Wed)
 
 # ECS.js
 
