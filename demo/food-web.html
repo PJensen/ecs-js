@@ -81,7 +81,6 @@ import {
   defineComponent,
   defineTag,
   defineArchetype,
-  withOverrides,
   createFrom,
   PHASE_SCRIPTS,
   createRealtimeRafLoop,
@@ -171,9 +170,19 @@ function log(msg){ const time = new Date().toLocaleTimeString(); UI.log.textCont
 // ---------- World construction ----------
 let world = null; let loop = null;
 
-const Critter = defineArchetype('Critter', [Position, (p)=>({ x:p.x, y:p.y })], [Velocity, { dx:0, dy:0 }], [Trail, { ttl:8, hue:120 }]);
-const Grazer = withOverrides(Critter, { Herbivore: { energy:32, gestate:0, lastMeal:0 }, Trail: (_p,_w,_id,base)=>({ ...base, hue:110 }) });
-const Hunter = withOverrides(Critter, { Predator: { energy:46, hunger:0, target:-1 }, Trail: (_p,_w,_id,base)=>({ ...base, hue:10 }) });
+const Critter = defineArchetype('Critter', [Position, (p)=>({ x:p.x, y:p.y })], [Velocity, { dx:0, dy:0 }]);
+const Grazer = defineArchetype(
+  'Grazer',
+  Critter,
+  [Trail, { ttl: 8, hue: 110 }],
+  [Herbivore, { energy:32, gestate:0, lastMeal:0 }],
+);
+const Hunter = defineArchetype(
+  'Hunter',
+  Critter,
+  [Trail, { ttl: 8, hue: 10 }],
+  [Predator, { energy:46, hunger:0, target:-1 }],
+);
 
 function seedField(cols, rows, rainfall, sunlight, rand){
   const n = cols*rows; const plants = new Float32Array(n); const carrion = new Float32Array(n); const scent = new Float32Array(n);
