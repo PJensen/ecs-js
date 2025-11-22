@@ -1,0 +1,407 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>ecs-js — Fishery Collapse (Agent Simulation)</title>
+<style>
+  :root { color-scheme: dark }
+  html,body { margin:0; background:#0b0f13; color:#d8f6de; font:14px/1.4 system-ui, sans-serif }
+  #wrap { display:grid; grid-template-columns: 360px 1fr; height:100vh }
+  #ui { padding:14px; border-right:1px solid #223; overflow:auto }
+  #ui h1{ font-size:16px; margin:0 0 8px }
+  .row{ margin:10px 0 }
+  label{ display:flex; justify-content:space-between; font-size:12px; color:#a7d7af }
+  input[type=range]{ width:100% }
+  .btns{ display:flex; gap:8px; margin:8px 0 4px }
+  button{ background:#19321e; color:#a7d7af; border:1px solid #2b5; padding:6px 10px; border-radius:8px; cursor:pointer }
+  button.sec{ background:#162126; border-color:#357; color:#9ad }
+  #hud{ font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#9ad7a0 }
+  #log{ height:110px; overflow:auto; background:#0006; padding:8px; border-radius:8px; border:1px solid #234 }
+  canvas{ width:100%; height:100%; display:block }
+  .kv{ display:grid; grid-template-columns:auto 1fr; gap:4px 8px; margin-top:6px }
+  .kv b{ color:#cfe }
+  .toggles { display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:12px; color:#a7d7af }
+  .toggles label{ display:flex; align-items:center; gap:6px; justify-content:flex-start }
+</style>
+<div id="wrap">
+  <div id="ui">
+    <h1>Fishery Collapse — Agent Simulation (ecs-js)</h1>
+    <div class="row btns">
+      <button id="play">▶ Play</button>
+      <button id="step" class="sec">Step</button>
+      <button id="reset" class="sec">Reset</button>
+    </div>
+    <div class="row">
+      <label>Sim speed (dt) <span id="dtVal"></span></label>
+      <input id="dt" type="range" min="0.02" max="0.50" step="0.02" value="0.10">
+    </div>
+
+    <div class="row"><b style="color:#a7d7af">Fish dynamics</b></div>
+    <div class="row">
+      <label>Recruit per fish (br) <span id="brVal"></span></label>
+      <input id="br" type="range" min="0.00" max="0.60" step="0.01" value="0.20">
+      <label>Natural mortality (m) <span id="mVal"></span></label>
+      <input id="m" type="range" min="0.00" max="0.40" step="0.01" value="0.05">
+      <label>Local K per cell <span id="KcVal"></span></label>
+      <input id="Kc" type="range" min="50" max="2000" step="10" value="400">
+      <label>Diffusion rate (D) <span id="DVal"></span></label>
+      <input id="D" type="range" min="0.00" max="0.60" step="0.01" value="0.20">
+    </div>
+
+    <div class="row"><b style="color:#a7d7af">Fleet & economy</b></div>
+    <div class="row">
+      <label>Initial boats <span id="boatsVal"></span></label>
+      <input id="boats" type="range" min="0" max="80" step="1" value="20">
+      <label>Catchability (q) <span id="qVal"></span></label>
+      <input id="q" type="range" min="0.001" max="0.10" step="0.001" value="0.02">
+      <label>Price per fish (p) <span id="pVal"></span></label>
+      <input id="p" type="range" min="0.1" max="20" step="0.1" value="3">
+      <label>Cost per tick (c) <span id="cVal"></span></label>
+      <input id="c" type="range" min="0.0" max="10" step="0.1" value="0.6">
+      <label>Entry/exit sensitivity (α) <span id="alphaVal"></span></label>
+      <input id="alpha" type="range" min="0.00" max="1.00" step="0.02" value="0.20">
+      <label>Search radius (cells) <span id="RVal"></span></label>
+      <input id="R" type="range" min="0" max="6" step="1" value="3">
+    </div>
+
+    <div class="row">
+      <label>Collapse threshold (% of total K) <span id="thVal"></span></label>
+      <input id="th" type="range" min="0.01" max="0.50" step="0.01" value="0.15">
+    </div>
+
+    <div class="row"><b style="color:#a7d7af">Display</b></div>
+    <div class="row toggles">
+      <label><input id="showFish" type="checkbox" checked> Show fish icons</label>
+      <label><input id="showHeat" type="checkbox" checked> Heatmap background</label>
+    </div>
+
+    <div id="hud" class="row">
+      <div class="kv">
+        <span>Time</span> <b id="tOut">0.00</b>
+        <span>Total Biomass</span> <b id="bOut">—</b>
+        <span>Boats</span> <b id="eOut">—</b>
+        <span>Catches/tick</span> <b id="cOut">—</b>
+        <span>Avg Profit</span> <b id="piOut">—</b>
+        <span>Status</span> <b id="statusOut">OK</b>
+      </div>
+    </div>
+    <div class="row">
+      <div>Events</div>
+      <div id="log"></div>
+    </div>
+    <div class="row" style="font-size:11px; color:#8fb99a; line-height:1.3;">
+      Sources: Hilborn & Walters (1992, fisheries dynamics), Worm et al. (2009, collapse framing), FAO SOFIA 2022 (global stock status).
+    </div>
+  </div>
+  <canvas id="cv"></canvas>
+</div>
+<script type="module">
+  import { World, defineComponent, defineTag } from '../core.js';
+  import { composeScheduler } from '../systems.js';
+  import { createRealtimeRafLoop } from '../adapters/raf-adapters.js';
+
+  const DEFAULT_SEED = 0xc0ffee >>> 0;
+
+  const Grid      = defineComponent('Grid', { cols:32, rows:24, Kc:400, D:0.2, br:0.2, m:0.05 });
+  const Field     = defineComponent('Field',{ B:null });
+  const BoatsConf = defineComponent('BoatsConf',{ q:0.02, p:3, c:0.6, alpha:0.2, R:3 });
+  const Boat      = defineComponent('Boat',{ x:0, y:0, hx:1, hy:0, catch:0, profit:0 });
+  const Metrics   = defineComponent('Metrics',{ totalB:0, totalCatch:0, avgProfit:0 });
+  const Hist      = defineComponent('Hist',   { xs:[], B:[], E:[], C:[], PI:[] });
+  const Collapsed = defineTag('Collapsed');
+
+  const clamp=(v,min,max)=>v<min?min:v>max?max:v;
+  const idx=(x,y,cols,rows)=>{ x=(x+cols)%cols; y=(y+rows)%rows; return y*cols+x; };
+  const neigh=(cx,cy,R,cols,rows)=>{ const out=[]; for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){ const x=(cx+dx+cols)%cols, y=(cy+dy+rows)%rows; out.push([x,y]); } return out; };
+
+  function drawFish(ctx, x, y, s){
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(s, s);
+    ctx.beginPath();
+    ctx.moveTo(-6,0); ctx.quadraticCurveTo(-2,-4,4,0); ctx.quadraticCurveTo(-2,4,-6,0);
+    ctx.moveTo(-8,0); ctx.lineTo(-12,-3); ctx.lineTo(-12,3); ctx.closePath();
+    ctx.fillStyle = '#7dd3fc'; ctx.fill();
+    ctx.beginPath(); ctx.arc(2,-1.2,1.2,0,Math.PI*2); ctx.fillStyle='#0b0f13'; ctx.fill();
+    ctx.restore();
+  }
+  function drawBoat(ctx, x, y, angle, s){
+    ctx.save(); ctx.translate(x,y); ctx.rotate(angle); ctx.scale(s,s);
+    ctx.beginPath();
+    ctx.moveTo(0,-8); ctx.lineTo(6,8); ctx.lineTo(-6,8); ctx.closePath();
+    ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#1b2a2f'; ctx.stroke();
+    ctx.restore();
+  }
+
+  const UI = {
+    dt: document.getElementById('dt'),
+    br: document.getElementById('br'),
+    m: document.getElementById('m'),
+    Kc: document.getElementById('Kc'),
+    D: document.getElementById('D'),
+    boats: document.getElementById('boats'),
+    q: document.getElementById('q'),
+    p: document.getElementById('p'),
+    c: document.getElementById('c'),
+    alpha: document.getElementById('alpha'),
+    R: document.getElementById('R'),
+    th: document.getElementById('th'),
+    showHeat: document.getElementById('showHeat'),
+    showFish: document.getElementById('showFish'),
+    labels: {
+      dt: document.getElementById('dtVal'), br: document.getElementById('brVal'), m: document.getElementById('mVal'),
+      Kc: document.getElementById('KcVal'), D: document.getElementById('DVal'), boats: document.getElementById('boatsVal'),
+      q: document.getElementById('qVal'), p: document.getElementById('pVal'), c: document.getElementById('cVal'),
+      alpha: document.getElementById('alphaVal'), R: document.getElementById('RVal'), th: document.getElementById('thVal'),
+    }
+  };
+  function syncLabels(){
+    for(const k in UI.labels){ const el = UI[k]; if(el) UI.labels[k].textContent = (k==='th'? (+(el.value)*100).toFixed(0)+'%': +el.value); }
+  }
+  for (const el of [UI.dt,UI.br,UI.m,UI.Kc,UI.D,UI.boats,UI.q,UI.p,UI.c,UI.alpha,UI.R,UI.th]) el.addEventListener('input', syncLabels);
+
+  const OUT = {
+    t: document.getElementById('tOut'), b: document.getElementById('bOut'), e: document.getElementById('eOut'),
+    c: document.getElementById('cOut'), pi: document.getElementById('piOut'), status: document.getElementById('statusOut'), log: document.getElementById('log'),
+  };
+  const CV = (()=>{ const cv=document.getElementById('cv'); const ctx=cv.getContext('2d'); function fit(){ const dpr=window.devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); } window.addEventListener('resize', fit); fit(); return { ctx, cv }; })();
+
+  function spawnBoat(world){
+    const first = world.query(Grid)[Symbol.iterator]().next().value;
+    if(!first) return;
+    const [id, grid] = first;
+    const b = world.create();
+    const x = (world.rand()*grid.cols)|0, y=(world.rand()*grid.rows)|0;
+    world.add(b, Boat, { x, y, hx:1, hy:0, catch:0, profit:0 });
+  }
+
+  function seedField(cols, rows, Kc, rand){
+    const N=cols*rows; const B=new Float32Array(N);
+    for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+      const base = Kc*0.3 + Kc*0.2*rand();
+      B[idx(x,y,cols,rows)] = base;
+    }
+    return B;
+  }
+
+  function fishRecruitMortDiffuse(world, dt){
+    for(const [id, grid, field] of world.query(Grid, Field)){
+      const {cols,rows,Kc,br,m,D} = grid; const B=field.B; const N=cols*rows;
+      for(let i=0;i<N;i++){
+        const Bi = B[i];
+        const births = (br*dt) * Bi * (1 - Bi / Kc);
+        const deaths = (m*dt) * Bi;
+        B[i] = Math.max(0, Bi + births - deaths);
+      }
+      if(D>0){
+        const out = new Float32Array(N);
+        for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+          const i=idx(x,y,cols,rows), Bi=B[i];
+          const leak = D*dt*Bi; const stay = Bi - leak; const share = leak/4;
+          out[i]+=stay;
+          out[idx(x+1,y,cols,rows)]+=share;
+          out[idx(x-1,y,cols,rows)]+=share;
+          out[idx(x,y+1,cols,rows)]+=share;
+          out[idx(x,y-1,cols,rows)]+=share;
+        }
+        field.B = out;
+      }
+    }
+  }
+
+  function boatBehavior(world, dt){
+    for(const [id, grid, field, conf] of world.query(Grid, Field, BoatsConf)){
+      const {cols,rows} = grid; const B=field.B; const R=conf.R|0; const q=conf.q;
+      for(const [bid, boat] of world.query(Boat)){
+        const cx=Math.round(boat.x), cy=Math.round(boat.y);
+        let bestX=cx,bestY=cy,bestB=B[idx(cx,cy,cols,rows)];
+        if(R>0){ for(const [x,y] of neigh(cx,cy,R,cols,rows)){ const v=B[idx(x,y,cols,rows)]; if(v>bestB){ bestB=v; bestX=x; bestY=y; } } }
+        const dx=Math.sign(bestX-cx), dy=Math.sign(bestY-cy);
+        if(dx!==0 || dy!==0){ boat.hx = dx; boat.hy = dy; }
+        boat.x = (cx+dx+cols)%cols; boat.y=(cy+dy+rows)%rows;
+        const i=idx(boat.x, boat.y, cols, rows); const avail=B[i];
+        const take = Math.min(avail, q*avail*dt);
+        B[i] = avail - take; boat.catch = take;
+      }
+    }
+  }
+
+  function boatEconomy(world, dt){
+    for(const [id, conf] of world.query(BoatsConf)){
+      let totalCatch=0, totalProfit=0, n=0;
+      for(const [bid, boat] of world.query(Boat)){
+        const rev = conf.p * boat.catch;
+        const cost = conf.c * dt;
+        const profit = rev - cost;
+        boat.profit = profit; totalCatch += boat.catch; totalProfit += profit; n++;
+      }
+      const avg = n? totalProfit/n : 0;
+      for(const [mid, metrics] of world.query(Metrics)){
+        metrics.totalCatch = totalCatch; metrics.avgProfit = avg;
+      }
+    }
+  }
+
+  function fleetEntryExit(world, dt){
+    for(const [id, conf] of world.query(BoatsConf)){
+      const α = conf.alpha;
+      let avg=0; for(const [mid, metrics] of world.query(Metrics)){ avg = metrics.avgProfit; }
+      if(avg>0){ if(world.rand() < α * avg * dt){ spawnBoat(world); } }
+      else if(avg<0){ if(world.rand() < α * (-avg) * dt){ const boats=[...world.query(Boat)]; if(boats.length){ const removeId = boats[(world.rand()*boats.length)|0][0]; world.destroy(removeId); } } }
+    }
+  }
+
+  function metricsSystem(world, dt){
+    for(const [id, grid, field, metrics] of world.query(Grid, Field, Metrics)){
+      const totalB = field.B.reduce((a,b)=>a+b,0);
+      metrics.totalB = totalB;
+    }
+  }
+
+  function collapseDetector(world, dt){
+    for(const [id, grid, field, metrics] of world.query(Grid, Field, Metrics)){
+      const totalK = grid.cols*grid.rows*grid.Kc;
+      const thresh = UI.th.value * totalK;
+      const already = world.has(id, Collapsed);
+      if(metrics.totalB < thresh && !already){
+        world.add(id, Collapsed, {});
+        world.emit('collapse', { id, time:world.time, B:metrics.totalB, K:totalK });
+      }
+      if(metrics.totalB >= thresh && already){
+        world.remove(id, Collapsed);
+      }
+    }
+  }
+
+  function historySystem(world, dt){
+    for(const [id, grid, field, metrics, hist] of world.query(Grid, Field, Metrics, Hist)){
+      const boats = [...world.query(Boat)].length;
+      hist.xs.push(world.time); hist.B.push(metrics.totalB); hist.E.push(boats);
+      let catchNow=0, avgP=0, n=0; for(const [bid, boat] of world.query(Boat)){ catchNow+=boat.catch; avgP+=boat.profit; n++; }
+      hist.C.push(catchNow); hist.PI.push(n?avgP/n:0);
+      const N=900; if(hist.xs.length>N){ for(const k of ['xs','B','E','C','PI']) hist[k].shift(); }
+    }
+  }
+
+  function renderSystem(world, dt){
+    const ctx = CV.ctx, w = ctx.canvas.width, h = ctx.canvas.height;
+    ctx.clearRect(0,0,w,h);
+    for(const [id, grid, field, conf, metrics, hist] of world.query(Grid, Field, BoatsConf, Metrics, Hist)){
+      const {cols,rows,Kc}=grid; const B=field.B; const cellW = (w-240)/cols; const cellH = (h-20)/rows; const ox=10, oy=10;
+
+      if(UI.showHeat.checked){
+        for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+          const v=B[idx(x,y,cols,rows)]/Kc; const c = clamp(v,0,1);
+          const r = Math.floor(20 + 200*c), g=Math.floor(40 + 180*c), b=60;
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(ox + x*cellW, oy + y*cellH, Math.ceil(cellW), Math.ceil(cellH));
+        }
+      } else {
+        ctx.strokeStyle='#1b2a2f'; ctx.lineWidth=1;
+        for(let x=0;x<=cols;x++){ const gx=ox+x*cellW; ctx.beginPath(); ctx.moveTo(gx,oy); ctx.lineTo(gx,oy+rows*cellH); ctx.stroke(); }
+        for(let y=0;y<=rows;y++){ const gy=oy+y*cellH; ctx.beginPath(); ctx.moveTo(ox,gy); ctx.lineTo(ox+cols*cellW,gy); ctx.stroke(); }
+      }
+
+      if(UI.showFish.checked){
+        for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+          const val=B[idx(x,y,cols,rows)];
+          const ratio = clamp(val / Kc,0,1);
+          const count = Math.max(0, Math.min(4, Math.round(ratio*4)));
+          for(let n=0;n<count;n++){
+            const fx = ox + x*cellW + (n%2?0.65:0.35)*cellW;
+            const fy = oy + y*cellH + (n<2?0.35:0.70)*cellH;
+            const s = Math.max(0.5, 0.9*ratio) * Math.min(cellW,cellH)/12;
+            drawFish(ctx, fx, fy, s);
+          }
+        }
+      }
+
+      for(const [bid, boat] of world.query(Boat)){
+        const bx = ox + (boat.x+0.5)*cellW;
+        const by = oy + (boat.y+0.5)*cellH;
+        const ang = Math.atan2(boat.hy, boat.hx);
+        drawBoat(ctx, bx, by, ang, Math.min(cellW,cellH)/12);
+      }
+
+      const gx = w-220, gy=10, gw=210, gh=(h-30)/2-10;
+      const N=hist.xs.length; if(N>1){
+        const tmin=hist.xs[0], tmax=hist.xs[N-1];
+        ctx.strokeStyle='#1b2a2f'; ctx.strokeRect(gx,gy,gw,gh); ctx.strokeRect(gx,gy+gh+20,gw,gh);
+        const X=(t)=> gx + gw*(t-tmin)/(tmax-tmin||1);
+        const Bmax = grid.cols*grid.rows*grid.Kc;
+        const Y1=(v)=> gy + gh - gh*(v/Bmax);
+        ctx.strokeStyle='#8af0c0'; ctx.beginPath(); ctx.moveTo(X(hist.xs[0]), Y1(hist.B[0]));
+        for(let i=1;i<N;i++) ctx.lineTo(X(hist.xs[i]), Y1(hist.B[i])); ctx.stroke();
+        const Emax = 100;
+        const Y2=(v)=> gy+gh+20 + gh - gh*(v/Emax);
+        ctx.strokeStyle='#7db6ff'; ctx.beginPath(); ctx.moveTo(X(hist.xs[0]), Y2(hist.E[0]));
+        for(let i=1;i<N;i++) ctx.lineTo(X(hist.xs[i]), Y2(hist.E[i])); ctx.stroke();
+        ctx.strokeStyle='#ff6b6b'; ctx.setLineDash([6,6]); ctx.beginPath();
+        const th = UI.th.value * Bmax; ctx.moveTo(gx, Y1(th)); ctx.lineTo(gx+gw, Y1(th)); ctx.stroke(); ctx.setLineDash([]);
+        ctx.font='12px ui-monospace'; ctx.fillStyle='#a7d7af'; ctx.fillText('Biomass', gx+6, gy+14); ctx.fillText('Boats', gx+6, gy+gh+20+14);
+        ctx.fillText('🐟 = fish density, ▲ = boats', gx+6, gy+gh*2+30);
+      }
+
+      OUT.t.textContent = world.time.toFixed(2);
+      OUT.b.textContent = metrics.totalB.toFixed(0);
+      OUT.e.textContent = [...world.query(Boat)].length;
+      OUT.c.textContent = metrics.totalCatch.toFixed(2);
+      OUT.pi.textContent = metrics.avgProfit.toFixed(2);
+      const totalK = grid.cols*grid.rows*grid.Kc;
+      const collapsed = metrics.totalB < UI.th.value*totalK; OUT.status.textContent = collapsed? 'COLLAPSED':'OK'; OUT.status.style.color = collapsed? '#ff9a9a':'#9ad7a0';
+    }
+  }
+
+  function makeWorld(){
+    const w = new World({ seed: DEFAULT_SEED });
+    const root = w.create();
+    const cols=32, rows=24;
+    w.add(root, Grid, { cols, rows, Kc:+UI.Kc.value, D:+UI.D.value, br:+UI.br.value, m:+UI.m.value });
+    w.add(root, Field, { B: seedField(cols, rows, +UI.Kc.value, w.rand) });
+    w.add(root, BoatsConf, { q:+UI.q.value, p:+UI.p.value, c:+UI.c.value, alpha:+UI.alpha.value, R:+UI.R.value|0 });
+    w.add(root, Metrics, { totalB:0, totalCatch:0, avgProfit:0 });
+    w.add(root, Hist, { xs:[], B:[], E:[], C:[], PI:[] });
+
+    const nBoats = +UI.boats.value; for(let i=0;i<nBoats;i++) spawnBoat(w);
+
+    function bind(el, Comp, key){ el.addEventListener('input', ()=>{ const rec=w.get(root,Comp); rec[key]= (key==='R')? (el.value|0): +el.value; }); }
+    bind(UI.Kc, Grid, 'Kc'); bind(UI.D, Grid, 'D'); bind(UI.br, Grid, 'br'); bind(UI.m, Grid, 'm');
+    bind(UI.q, BoatsConf, 'q'); bind(UI.p, BoatsConf, 'p'); bind(UI.c, BoatsConf, 'c'); bind(UI.alpha, BoatsConf, 'alpha'); bind(UI.R, BoatsConf, 'R');
+
+    w.on('collapse', ev => { OUT.log.innerHTML = `<div>t=${ev.time.toFixed(2)} — <span style="color:#ff9a9a">COLLAPSE</span> (B=${ev.B.toFixed(0)})</div>` + OUT.log.innerHTML; });
+
+    w.system(fishRecruitMortDiffuse, 'fish');
+    w.system(boatBehavior,           'boats');
+    w.system(boatEconomy,            'econ');
+    w.system(fleetEntryExit,         'econ');
+    w.system(metricsSystem,          'metrics');
+    w.system(collapseDetector,       'monitor');
+    w.system(historySystem,          'record');
+    w.system(renderSystem,           'render');
+
+    w.setScheduler(composeScheduler('fish','boats','econ','metrics','monitor','record','render'));
+    w.step = () => w.tick(+UI.dt.value);
+    return w;
+  }
+
+  const playBtn = document.getElementById('play');
+  let world = null, loop = null;
+  const setRunningUi = (running) => { playBtn.textContent = running ? '⏸ Pause' : '▶ Play'; };
+  function reset(){
+    loop?.stop();
+    world = makeWorld();
+    loop = createRealtimeRafLoop({ world });
+    OUT.log.textContent='';
+    loop.start();
+    setRunningUi(true);
+  }
+  function step(){ world?.tick(+UI.dt.value); }
+  function togglePlay(){
+    if(!loop || !world) return;
+    if(loop.isRunning()) { loop.stop(); setRunningUi(false); }
+    else { loop.start(); setRunningUi(true); }
+  }
+
+  playBtn.onclick = () => { togglePlay(); };
+  document.getElementById('step').onclick = () => { if(!loop?.isRunning()) step(); };
+  document.getElementById('reset').onclick = () => { reset(); };
+
+  syncLabels(); reset();
+</script>
