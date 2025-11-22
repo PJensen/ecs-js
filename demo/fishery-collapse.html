@@ -33,7 +33,7 @@
     }
     .controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     label { font-size: 0.9rem; opacity: 0.85; }
-    input[type="number"] { width: 8rem; padding: 0.35rem 0.5rem; border-radius: 8px; border: 1px solid #243143; background: #0b1626; color: #e5e7eb; }
+    input[type="number"], input[type="text"] { width: 8rem; padding: 0.35rem 0.5rem; border-radius: 8px; border: 1px solid #243143; background: #0b1626; color: #e5e7eb; }
     button {
       border: 1px solid #243143;
       border-radius: 8px;
@@ -65,13 +65,13 @@
     <p>This deterministic scenario shows how <code>ecs-js</code> handles a complex feedback loop: a single fish stock grows logistically, a fleet harvests it, and a policy layer adapts fishing effort to prevent collapse.</p>
     <div class="controls" aria-label="Simulation controls">
       <label for="seed">Seed</label>
-      <input id="seed" type="number" value="1447" />
+      <input id="seed" type="text" value="0xc0ffee" inputmode="numeric" />
       <label for="years">Years</label>
       <input id="years" type="number" value="25" min="1" max="120" />
       <button id="run">Run scenario</button>
       <span class="pill" id="headline">Waiting to run…</span>
     </div>
-    <p class="small">Adjust the seed or horizon, then re-run to replay the same dynamics. The world uses explicit phases (<code>growth → harvest → policy → log</code>) to keep causality readable.</p>
+    <p class="small">Adjust the seed or horizon, then re-run to replay the same dynamics. The world uses explicit phases (<code>growth → harvest → policy → detect → log</code>) to keep causality readable.</p>
   </header>
 
   <section class="panel">
@@ -92,16 +92,18 @@
 
   <section class="panel">
     <h2>Scenario notes</h2>
+    <canvas id="chart" width="720" height="260" aria-label="Biomass and catch over time"></canvas>
     <div class="notes" id="notes"></div>
   </section>
 
   <script type="module">
     import { World, defineComponent, defineTag } from '../core.js';
     import { composeScheduler } from '../systems.js';
+    import { createRealtimeRafLoop } from '../adapters/raf-adapters.js';
 
     const Stock = defineComponent('Stock', { biomass: 120, carrying: 200, growth: 0.6, noise: 0.08 });
     const Harvest = defineComponent('Harvest', { effort: 0.4, catchability: 0.03, maxEffort: 1.2 });
-    const CollapseGate = defineComponent('CollapseGate', { at: 0.25 });
+    const CollapseGate = defineComponent('CollapseGate', { at: 0.25, detected: false, year: null });
     const Pulse = defineComponent('Pulse', { catch: 0 });
     const Year = defineComponent('Year', { value: 0 });
     const Collapsed = defineTag('Collapsed');
@@ -112,6 +114,8 @@
     const seedInput = document.getElementById('seed');
     const yearsInput = document.getElementById('years');
     const runBtn = document.getElementById('run');
+    const chartEl = document.getElementById('chart');
+    const chartCtx = chartEl.getContext('2d');
 
     const fmt = (n, digits = 2) => Number(n).toFixed(digits);
 
@@ -123,7 +127,7 @@
 
     function buildWorld(seed) {
       const world = new World({ seed, store: 'map' });
-      world.setScheduler(composeScheduler('growth', 'harvest', 'policy', 'log'));
+      world.setScheduler(composeScheduler('growth', 'harvest', 'policy', 'detect', 'log'));
 
       const stock = world.create();
       world.add(stock, Stock, { biomass: 140, carrying: 220, growth: 0.58, noise: 0.06 });
@@ -150,10 +154,8 @@
       }, 'harvest');
 
       world.system((w) => {
-        for (const [id, s, h, gate] of w.query(Stock, Harvest, CollapseGate)) {
+        for (const [_id, s, h] of w.query(Stock, Harvest)) {
           const ratio = s.biomass / s.carrying;
-          if (ratio < gate.at && !w.has(id, Collapsed)) w.add(id, Collapsed);
-
           if (ratio < 0.35) {
             h.effort = Math.max(0.05, h.effort * 0.86);
           } else if (ratio > 0.65 && h.effort < h.maxEffort) {
@@ -164,17 +166,29 @@
         }
       }, 'policy');
 
+      world.system((w) => {
+        for (const [id, s, gate, year] of w.query(Stock, CollapseGate, Year)) {
+          const ratio = s.biomass / s.carrying;
+          if (ratio < gate.at && !gate.detected) {
+            gate.detected = true;
+            gate.year = year.value + 1;
+            if (!w.has(id, Collapsed)) w.add(id, Collapsed);
+          }
+        }
+      }, 'detect');
+
       return { world, stock };
     }
 
     function runScenario(seed, horizon) {
-      const { world, stock } = buildWorld(seed);
+      const { world: simWorld, stock } = buildWorld(seed);
       const history = [];
 
-      world.system((w) => {
-        const [s, h, pulse, year] = [w.get(stock, Stock), w.get(stock, Harvest), w.get(stock, Pulse), w.get(stock, Year)];
+      simWorld.system((w) => {
+        const [s, h, pulse, year, gate] = [w.get(stock, Stock), w.get(stock, Harvest), w.get(stock, Pulse), w.get(stock, Year), w.get(stock, CollapseGate)];
         const ratio = s.biomass / s.carrying;
-        const [label, cls] = stateLabel(ratio);
+        const collapsed = w.has(stock, Collapsed);
+        const [label, cls] = collapsed ? ['Collapsed', 'err'] : stateLabel(ratio);
         year.value += 1;
         history.push({
           year: year.value,
@@ -183,11 +197,24 @@
           effort: h.effort,
           label,
           cls,
+          collapseYear: gate.year,
         });
       }, 'log');
 
-      for (let i = 0; i < horizon; i++) world.tick(1);
-      return history;
+      return new Promise((resolve) => {
+        const loop = createRealtimeRafLoop({
+          world: { step: () => simWorld.tick(1) },
+          render: () => drawChart(history, horizon),
+          afterFrame: () => {
+            if (history.length >= horizon) {
+              loop.stop();
+              resolve(history);
+            }
+          },
+        });
+
+        loop.start({ reset: true });
+      });
     }
 
     function render(history) {
@@ -209,7 +236,7 @@
         minBiomass: Math.min(acc.minBiomass, r.biomass),
       }), { maxBiomass: 0, maxCatch: 0, minBiomass: Infinity });
 
-      const collapseYear = history.find((r) => r.label === 'Collapsed')?.year ?? '–';
+      const collapseYear = history.find((r) => r.label === 'Collapsed')?.collapseYear ?? '–';
       notesEl.textContent = [
         `Max biomass: ${fmt(highs.maxBiomass / 1000, 2)} kt`,
         `Max catch:   ${fmt(highs.maxCatch / 1000, 2)} kt`,
@@ -220,17 +247,94 @@
         '  1. growth  — logistic rebound with seeded noise',
         '  2. harvest — fleet removes biomass using catchability & effort',
         '  3. policy  — adaptive effort throttles back near collapse',
-        '  4. log     — capture a transcript row for the table',
+        '  4. detect  — tags collapse once biomass crosses a gate',
+        '  5. log     — capture a transcript row for the table',
+        '',
+        'Sources:',
+        '  - Hilborn & Walters (1992) “Quantitative Fisheries Stock Assessment” — logistic growth & harvest control rules (Ch. 2-4)',
+        '  - FAO Fisheries Circular 1011 (2006) — collapse thresholds & rebuilding heuristics',
       ].join('\n');
     }
 
+    function drawChart(history, horizon) {
+      const padding = 36;
+      const w = chartEl.width;
+      const h = chartEl.height;
+      chartCtx.clearRect(0, 0, w, h);
+      chartCtx.fillStyle = '#0b1626';
+      chartCtx.fillRect(0, 0, w, h);
+      chartCtx.strokeStyle = '#1f2937';
+      chartCtx.lineWidth = 1;
+      for (let y = 0; y <= 4; y++) {
+        const yPos = padding + ((h - padding * 1.5) / 4) * y;
+        chartCtx.beginPath();
+        chartCtx.moveTo(padding, yPos);
+        chartCtx.lineTo(w - padding / 2, yPos);
+        chartCtx.stroke();
+      }
+
+      if (!history.length) return;
+      const maxBiomass = Math.max(...history.map((d) => d.biomass));
+      const maxCatch = Math.max(...history.map((d) => d.catch));
+      const xFor = (i) => padding + (i / Math.max(1, horizon - 1)) * (w - padding * 1.5);
+      const yFor = (val, max) => h - padding - (val / Math.max(1, max)) * (h - padding * 1.75);
+
+      chartCtx.beginPath();
+      history.forEach((d, i) => {
+        const x = xFor(i);
+        const y = yFor(d.biomass, maxBiomass);
+        if (i === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+      });
+      chartCtx.strokeStyle = '#67e8f9';
+      chartCtx.lineWidth = 2.5;
+      chartCtx.stroke();
+
+      chartCtx.beginPath();
+      history.forEach((d, i) => {
+        const x = xFor(i);
+        const y = yFor(d.catch, maxCatch || 1);
+        if (i === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+      });
+      chartCtx.strokeStyle = '#fcd34d';
+      chartCtx.lineWidth = 2;
+      chartCtx.stroke();
+
+      const latest = history[history.length - 1];
+      const collapsed = history.find((d) => d.label === 'Collapsed');
+      chartCtx.fillStyle = '#e5e7eb';
+      chartCtx.font = '12px system-ui, sans-serif';
+      chartCtx.fillText('Biomass', padding, 16);
+      chartCtx.fillStyle = '#67e8f9';
+      chartCtx.fillRect(padding + 60, 8, 12, 12);
+      chartCtx.fillStyle = '#e5e7eb';
+      chartCtx.fillText('Catch', padding + 80, 16);
+      chartCtx.fillStyle = '#fcd34d';
+      chartCtx.fillRect(padding + 125, 8, 12, 12);
+      if (collapsed) {
+        const cx = xFor((collapsed.collapseYear ?? collapsed.year) - 1);
+        chartCtx.strokeStyle = '#f87171';
+        chartCtx.setLineDash([6, 5]);
+        chartCtx.beginPath();
+        chartCtx.moveTo(cx, padding / 2);
+        chartCtx.lineTo(cx, h - padding / 2);
+        chartCtx.stroke();
+        chartCtx.setLineDash([]);
+      }
+
+      chartCtx.fillStyle = '#9ca3af';
+      chartCtx.fillText(`Latest biomass: ${fmt(latest.biomass / 1000, 2)} kt`, w - 240, 16);
+    }
+
     function start() {
-      const seed = Number(seedInput.value) >>> 0;
+      const seed = parseInt(seedInput.value, 0) >>> 0;
       const years = Math.max(1, Math.min(Number(yearsInput.value) || 0, 200));
       seedInput.value = seed;
       yearsInput.value = years;
-      const history = runScenario(seed, years);
-      render(history);
+      rowsEl.innerHTML = '';
+      headlineEl.textContent = 'Running…';
+      runScenario(seed, years).then((history) => render(history));
     }
 
     runBtn.addEventListener('click', start);
