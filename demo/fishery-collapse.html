@@ -381,21 +381,25 @@
     return w;
   }
 
+  const playBtn = document.getElementById('play');
   let world = null, loop = null;
+  const setRunningUi = (running) => { playBtn.textContent = running ? '⏸ Pause' : '▶ Play'; };
   function reset(){
     loop?.stop();
     world = makeWorld();
     loop = createRealtimeRafLoop({ world });
     OUT.log.textContent='';
+    loop.start();
+    setRunningUi(true);
   }
   function step(){ world?.tick(+UI.dt.value); }
   function togglePlay(){
     if(!loop || !world) return;
-    if(loop.isRunning()) { loop.stop(); document.getElementById('play').textContent='▶ Play'; }
-    else { document.getElementById('play').textContent='⏸ Pause'; loop.start(); }
+    if(loop.isRunning()) { loop.stop(); setRunningUi(false); }
+    else { loop.start(); setRunningUi(true); }
   }
 
-  document.getElementById('play').onclick = () => { togglePlay(); };
+  playBtn.onclick = () => { togglePlay(); };
   document.getElementById('step').onclick = () => { if(!loop?.isRunning()) step(); };
   document.getElementById('reset').onclick = () => { reset(); };
 
