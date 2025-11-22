@@ -54,7 +54,7 @@
     </div>
     <div class="row"><b style="color:#9dd7ff">Display</b></div>
     <div class="row toggle-grid">
-      <label><input id="showHeat" type="checkbox" checked> Plant biomass heatmap</label>
+      <label><input id="showHeat" type="checkbox" checked> Plant glows</label>
       <label><input id="showTrails" type="checkbox" checked> Animal trails</label>
       <label><input id="showSignals" type="checkbox" checked> Signals (events)</label>
       <label><input id="showContours" type="checkbox" checked> Territories</label>
@@ -123,9 +123,8 @@ const SKY_EMOJI = Array.from({ length: 36 }, () => ({
 }));
 
 const COLORS = {
-  grid: '#0f1926',
-  laneA: '#1b2c3d',
-  laneB: '#132031',
+  skyTop: '#081228',
+  skyBottom: '#050912',
   herb: '#74ffcf',
   pred: '#ff8c7a',
   plant: '#6ad96b',
@@ -267,7 +266,7 @@ function bumpEvents(x){ for (const [id, m] of world.query(Metrics)) world.set(id
 function spawnHerb(){
   const [meta, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
   if (!biome) return;
-  const pos = { x:(world.rand()*biome.cols)|0, y:(world.rand()*biome.rows)|0 };
+  const pos = { x: world.rand()*biome.cols, y: world.rand()*biome.rows };
   const id = world.create();
   world.add(id, Position, pos);
   world.add(id, Velocity, { dx:0, dy:0 });
@@ -283,7 +282,7 @@ function spawnHerb(){
 function spawnPred(){
   const [meta, biome] = world.query(Biome)[Symbol.iterator]().next().value || [];
   if (!biome) return;
-  const pos = { x:(world.rand()*biome.cols)|0, y:(world.rand()*biome.rows)|0 };
+  const pos = { x: world.rand()*biome.cols, y: world.rand()*biome.rows };
   const id = world.create();
   world.add(id, Position, pos);
   world.add(id, Velocity, { dx:0, dy:0 });
@@ -325,60 +324,102 @@ function growSystem(world, dt){
   }
 }
 
-function chooseStep(world, x, y, role){
-  const [bid, biome, field, season] = world.query(Biome, Field, Season)[Symbol.iterator]().next().value || [];
-  if (!biome) return [x,y];
-  const { cols, rows } = biome; let best=[x,y], bestScore=-1e9;
-  for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-    const nx = (x+dx+cols)%cols, ny=(y+dy+rows)%rows; const i=idx(nx,ny,cols,rows);
-    const plant = field.plants[i]; const carr = field.carrion[i]; const sc = field.scent[i];
-    let score = role==='herb' ? plant - 0.2*carr + (sc*0.1) : carr*0.6 + plant*0.05 + sc*0.5;
-    score += (world.rand()*0.25);
-    if(score>bestScore){ bestScore=score; best=[nx,ny]; }
-  }
-  return best;
+const HERB_SPEED = 5.4;
+const PRED_SPEED = 6.5;
+
+function sampleFieldAt(field, biome, x, y){
+  const { cols, rows } = biome;
+  const gx = ((Math.floor(x)%cols)+cols)%cols;
+  const gy = ((Math.floor(y)%rows)+rows)%rows;
+  const i = idx(gx, gy, cols, rows);
+  return { plant: field.plants[i], carr: field.carrion[i], scent: field.scent[i], i };
+}
+
+function wrapPos(pos, biome){
+  pos.x = (pos.x + biome.cols) % biome.cols;
+  pos.y = (pos.y + biome.rows) % biome.rows;
 }
 
 function senseSystem(world, dt){
+  const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+  if(!biome) return;
+  const predators = [...world.query(Position, Predator)].map(([,p])=>p);
+  const herbs = [...world.query(Position, Herbivore)].map(([,p])=>p);
+
   for(const [id, herb] of world.query(Herbivore)){
-    const pos = world.get(id, Position); const [nx,ny] = chooseStep(world,pos.x,pos.y,'herb');
-    world.set(id, Velocity, { dx:nx-pos.x, dy:ny-pos.y });
+    const pos = world.get(id, Position);
+    let bestScore = -1e9; let dir = [Math.cos(world.rand()*Math.PI*2), Math.sin(world.rand()*Math.PI*2)];
+    for(let k=0;k<10;k++){
+      const ang = (k/10)*Math.PI*2 + world.rand()*0.2;
+      const rx = pos.x + Math.cos(ang)*4.5;
+      const ry = pos.y + Math.sin(ang)*4.5;
+      const s = sampleFieldAt(field, biome, rx, ry);
+      let fear = 0;
+      for(const p of predators){ const dx=p.x-pos.x, dy=p.y-pos.y; const d2=dx*dx+dy*dy; if(d2<36) fear += (36-d2)*0.12; }
+      const score = s.plant*0.8 - s.carr*0.35 + s.scent*0.12 - fear + world.rand()*0.6;
+      if(score > bestScore){ bestScore = score; dir = [Math.cos(ang), Math.sin(ang)]; }
+    }
+    const jitter = (world.rand()-0.5)*0.6;
+    const vx = dir[0] + jitter;
+    const vy = dir[1] + (world.rand()-0.5)*0.6;
+    const mag = Math.max(0.01, Math.hypot(vx, vy));
+    world.set(id, Velocity, { dx: (vx/mag)*HERB_SPEED, dy: (vy/mag)*HERB_SPEED });
   }
+
   for(const [id, pred] of world.query(Predator)){
     const pos = world.get(id, Position);
-    let nearest=null, dist=9e9;
-    for(const [hid, hpos] of world.query(Position, Herbivore)){
-      const dx=hpos.x-pos.x, dy=hpos.y-pos.y; const d=dx*dx+dy*dy; if(d<dist){ dist=d; nearest=hpos; }
+    let closest = null, d2min = 1e9;
+    for(const hp of herbs){
+      const dx = hp.x - pos.x, dy = hp.y - pos.y; const d2 = dx*dx + dy*dy;
+      if(d2 < d2min){ d2min = d2; closest = hp; }
     }
-    if(nearest){ const [nx,ny]=chooseStep(world,pos.x,pos.y,'pred'); world.set(id, Velocity, { dx: Math.sign(nearest.x-pos.x)||nx-pos.x, dy: Math.sign(nearest.y-pos.y)||ny-pos.y }); }
+    let dir;
+    if(closest){
+      dir = [closest.x - pos.x, closest.y - pos.y];
+    } else {
+      let best=[Math.cos(world.rand()*Math.PI*2), Math.sin(world.rand()*Math.PI*2)]; let bestScore=-1e9;
+      for(let k=0;k<8;k++){
+        const ang = (k/8)*Math.PI*2 + world.rand()*0.3; const rx=pos.x+Math.cos(ang)*5; const ry=pos.y+Math.sin(ang)*5;
+        const s = sampleFieldAt(field, biome, rx, ry);
+        const score = s.scent*0.8 + s.carr*0.5 + world.rand()*0.3;
+        if(score>bestScore){ bestScore=score; best=[Math.cos(ang), Math.sin(ang)]; }
+      }
+      dir = best;
+    }
+    const mag = Math.max(0.01, Math.hypot(dir[0], dir[1]));
+    world.set(id, Velocity, { dx: (dir[0]/mag)*PRED_SPEED, dy: (dir[1]/mag)*PRED_SPEED });
   }
 }
 
 function actSystem(world, dt){
+  const [bid, biome] = world.query(Biome)[Symbol.iterator]().next().value || [];
   for(const [id, pos, vel] of world.query(Position, Velocity)){
-    pos.x += vel.dx; pos.y += vel.dy; const [bid, biome] = world.query(Biome)[Symbol.iterator]().next().value || [];
-    if(biome){ pos.x = (pos.x+biome.cols)%biome.cols; pos.y=(pos.y+biome.rows)%biome.rows; }
+    if(biome){
+      pos.x += vel.dx * dt * 6;
+      pos.y += vel.dy * dt * 6;
+      wrapPos(pos, biome);
+    }
   }
   for(const [id, pos, herb] of world.query(Position, Herbivore)){
-    const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
-    if(!biome) continue; const i=idx(pos.x,pos.y,biome.cols,biome.rows);
-    const bite = Math.min(field.plants[i], 2.5);
-    field.plants[i]-=bite; field.scent[i]+=0.5;
+    const [bid2, biome2, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+    if(!biome2) continue; const sample = sampleFieldAt(field, biome2, pos.x, pos.y);
+    const bite = Math.min(sample.plant, 2.5);
+    field.plants[sample.i]-=bite; field.scent[sample.i]+=0.5;
     world.set(id, Herbivore, { ...herb, energy: herb.energy + bite*0.7, lastMeal: 0, gestate: herb.gestate + dt*bite*0.3 });
-    world.set(id, Trail, { ttl: 10, hue: 120 + 60*Math.random() });
+    world.set(id, Trail, { ttl: 12, hue: 120 + 60*Math.random() });
     if(herb.energy > 64 && herb.gestate > 6){ world.set(id, Herbivore, { ...herb, energy: herb.energy*0.5, gestate:0, lastMeal:0 }); spawnHerb(); }
   }
   for(const [id, pos, pred] of world.query(Position, Predator)){
-    const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
-    if(!biome) continue; const i=idx(pos.x,pos.y,biome.cols,biome.rows);
+    const [bid3, biome3, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+    if(!biome3) continue; const sample = sampleFieldAt(field, biome3, pos.x, pos.y);
     let ate=false;
     for(const [hid, hpos] of world.query(Position, Herbivore)){
-      if(hpos.x===pos.x && hpos.y===pos.y){ world.destroy(hid); adjustPopCounts(-1,0); field.carrion[i]+=2.5; ate=true; break; }
+      if(Math.hypot(hpos.x-pos.x, hpos.y-pos.y) < 0.4){ world.destroy(hid); adjustPopCounts(-1,0); field.carrion[sample.i]+=2.5; ate=true; break; }
     }
     const gain = ate? 8 : 0;
     world.set(id, Predator, { ...pred, energy: pred.energy + gain, hunger: pred.hunger + dt*(ate? -2:1) });
-    field.scent[i]+=1.2;
-    world.set(id, Trail, { ttl: 10, hue: 12 });
+    field.scent[sample.i]+=1.2;
+    world.set(id, Trail, { ttl: 12, hue: 12 });
     if(pred.energy>90){ world.set(id, Predator, { ...pred, energy: pred.energy*0.6, hunger:0 }); spawnPred(); }
   }
   for(const [id, sig] of world.query(Signal)){
@@ -448,8 +489,18 @@ function renderSystem(world, _dt, statsView){
   if(!biome) return; const cw = cv.width / biome.cols, ch = cv.height / biome.rows; const t = world.time;
 
   const sky = ctx.createLinearGradient(0,0,0,cv.height);
-  sky.addColorStop(0, '#061020'); sky.addColorStop(1, '#090c18');
+  sky.addColorStop(0, COLORS.skyTop); sky.addColorStop(1, COLORS.skyBottom);
   ctx.fillStyle = sky; ctx.fillRect(0,0,cv.width,cv.height);
+
+  // Aurora ribbons
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  const aurora = ctx.createLinearGradient(0,0,cv.width,cv.height);
+  aurora.addColorStop(0, 'rgba(80,180,255,0.12)');
+  aurora.addColorStop(1, 'rgba(180,120,255,0.14)');
+  ctx.fillStyle = aurora;
+  ctx.beginPath(); ctx.moveTo(0,cv.height*0.25); ctx.quadraticCurveTo(cv.width*0.35, cv.height*0.15, cv.width, cv.height*0.28); ctx.lineTo(cv.width, cv.height*0.45); ctx.quadraticCurveTo(cv.width*0.4, cv.height*0.35, 0, cv.height*0.5); ctx.closePath(); ctx.fill();
+  ctx.restore();
 
   ctx.save();
   ctx.globalAlpha = 0.25;
@@ -461,26 +512,51 @@ function renderSystem(world, _dt, statsView){
   }
   ctx.restore();
 
-  // RTS board tiles (lanes & resources)
-  for(let y=0;y<biome.rows;y++) for(let x=0;x<biome.cols;x++){
-    const i=idx(x,y,biome.cols,biome.rows);
-    const richness = Math.min(1, field.plants[i] / 40);
-    const decay = Math.min(1, field.carrion[i] / 10);
-    const base = (x+y)%2===0 ? COLORS.laneA : COLORS.laneB;
-    ctx.fillStyle = base; ctx.fillRect(x*cw, y*ch, cw, ch);
-    ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 0.5; ctx.strokeRect(x*cw, y*ch, cw, ch);
-    if(richness>0.02){
-      ctx.fillStyle = `rgba(120,255,160,${0.35+0.4*richness})`;
-      ctx.fillRect(x*cw, (y+0.7)*ch, cw*richness, ch*0.25);
+  // Biomass nebula: floating blobs for plants + carrion
+  if(UI.showHeat.checked){
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    for(let y=0;y<biome.rows;y+=2){
+      for(let x=0;x<biome.cols;x+=2){
+        const i = idx(x,y,biome.cols,biome.rows);
+        const plant = field.plants[i];
+        if(plant>1){
+          const px=(x+0.5)*cw, py=(y+0.5)*ch;
+          const r = Math.min(cw,ch) * (0.5 + Math.sqrt(plant)*0.12);
+          const g = ctx.createRadialGradient(px,py,0,px,py,r*1.4);
+          g.addColorStop(0, `rgba(90,255,150,0.28)`);
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r*1.2,0,Math.PI*2); ctx.fill();
+        }
+        const carr = field.carrion[i];
+        if(carr>0.6){
+          const px=(x+0.5)*cw, py=(y+0.5)*ch;
+          const r = Math.min(cw,ch) * (0.35 + Math.sqrt(carr)*0.15);
+          const g = ctx.createRadialGradient(px,py,0,px,py,r*1.6);
+          g.addColorStop(0, 'rgba(255,190,130,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fill();
+        }
+      }
     }
-    if(decay>0.02){
-      ctx.fillStyle = `rgba(255,180,120,${0.25+0.35*decay})`;
-      ctx.fillRect(x*cw+cw*(1-decay), y*ch+ch*0.05, cw*decay, ch*0.18);
+    ctx.restore();
+    // sprinkle visible sprites for biomass
+    ctx.save();
+    ctx.font = `${Math.min(cw,ch)*0.85}px "Apple Color Emoji","Noto Color Emoji"`;
+    for(let y=0;y<biome.rows;y+=3){
+      for(let x=0;x<biome.cols;x+=3){
+        const i = idx(x,y,biome.cols,biome.rows);
+        const plant = field.plants[i];
+        const carr = field.carrion[i];
+        if(plant>5 && world.rand()>0.45){ ctx.fillText(EMOJI.plant, x*cw, y*ch); }
+        if(carr>2.5 && world.rand()>0.65){ ctx.fillText(EMOJI.carrion, x*cw, y*ch); }
+      }
     }
+    ctx.restore();
   }
   if(UI.showContours.checked){
-    ctx.strokeStyle = 'rgba(0,255,205,0.12)'; ctx.lineWidth=1; for(let x=0;x<=biome.cols;x+=8){ ctx.beginPath(); ctx.moveTo(x*cw,0); ctx.lineTo(x*cw,cv.height); ctx.stroke(); }
-    ctx.strokeStyle = 'rgba(120,160,255,0.12)'; for(let y=0;y<=biome.rows;y+=8){ ctx.beginPath(); ctx.moveTo(0,y*ch); ctx.lineTo(cv.width,y*ch); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(90,140,255,0.16)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.ellipse(cv.width*0.5, cv.height*0.45, cv.width*0.44, cv.height*0.28, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cv.width*0.4, cv.height*0.65, cv.width*0.36, cv.height*0.2, 0, 0, Math.PI*2); ctx.stroke();
   }
   // Signals and rally beacons
   for(const [id, pos, sig] of world.query(Position, Signal)){
@@ -500,25 +576,38 @@ function renderSystem(world, _dt, statsView){
   // Trails and command arrows
   if(UI.showTrails.checked){
     for(const [id, pos, trail] of world.query(Position, Trail)){
+      const r = Math.min(cw,ch)*0.55;
       ctx.fillStyle = `hsla(${trail.hue},90%,70%,${Math.max(0, trail.ttl/12)})`;
-      ctx.shadowColor = `hsla(${trail.hue},100%,70%,0.6)`; ctx.shadowBlur = 8;
-      ctx.fillRect(pos.x*cw, pos.y*ch, cw, ch);
+      ctx.shadowColor = `hsla(${trail.hue},100%,70%,0.55)`; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc((pos.x+0.2)*cw, (pos.y+0.2)*ch, r, 0, Math.PI*2); ctx.fill();
     }
     ctx.shadowBlur = 0; ctx.shadowColor='transparent';
   }
-  // Units (emoji + health bars)
+  // Units (emoji + bounding circles)
   ctx.font = `${Math.min(cw,ch)*0.95}px "Apple Color Emoji","Noto Color Emoji"`;
   for(const [id, pos, herb] of world.query(Position, Herbivore)){
-    const energyBar = Math.max(0, Math.min(1, herb.energy/64));
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(pos.x*cw, pos.y*ch+ch*0.05, cw, ch*0.25);
-    ctx.fillStyle = COLORS.herb; ctx.fillRect(pos.x*cw, pos.y*ch+ch*0.05, cw*energyBar, ch*0.25);
-    ctx.save(); ctx.shadowColor='rgba(120,255,180,0.65)'; ctx.shadowBlur=12; ctx.fillText(EMOJI.herb[id % EMOJI.herb.length],(pos.x+0.06)*cw,(pos.y+0.9)*ch); ctx.restore();
+    const energy = Math.max(0, Math.min(1, herb.energy/64));
+    const r = Math.min(cw,ch)*0.58;
+    const px = pos.x*cw, py = pos.y*ch;
+    ctx.save();
+    ctx.shadowColor='rgba(120,255,180,0.5)'; ctx.shadowBlur=18;
+    ctx.strokeStyle=`rgba(100,255,200,${0.5+0.4*energy})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(px, py, r*0.9, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle=`rgba(0,0,0,0.7)`; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(px, py, r*0.7, -Math.PI/2, -Math.PI/2 + Math.PI*2*energy); ctx.stroke();
+    ctx.fillStyle='rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.arc(px, py, r*0.65, 0, Math.PI*2); ctx.fill();
+    ctx.fillText(EMOJI.herb[id % EMOJI.herb.length], px - r*0.4, py + r*0.4);
+    ctx.restore();
   }
   for(const [id, pos, pred] of world.query(Position, Predator)){
-    const energyBar = Math.max(0, Math.min(1, pred.energy/90));
-    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(pos.x*cw, pos.y*ch+ch*0.65, cw, ch*0.25);
-    ctx.fillStyle = COLORS.pred; ctx.fillRect(pos.x*cw, pos.y*ch+ch*0.65, cw*energyBar, ch*0.25);
-    ctx.save(); ctx.shadowColor='rgba(255,120,120,0.75)'; ctx.shadowBlur=14; ctx.fillText(EMOJI.pred[id % EMOJI.pred.length],(pos.x+0.05)*cw,(pos.y+0.92)*ch); ctx.restore();
+    const energy = Math.max(0, Math.min(1, pred.energy/90));
+    const r = Math.min(cw,ch)*0.6;
+    const px = pos.x*cw, py = pos.y*ch;
+    ctx.save();
+    ctx.shadowColor='rgba(255,120,120,0.65)'; ctx.shadowBlur=18;
+    ctx.strokeStyle=`rgba(255,140,120,${0.55+0.35*energy})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.lineWidth=7; ctx.beginPath(); ctx.arc(px, py, r*0.74, -Math.PI/2, -Math.PI/2 + Math.PI*2*energy); ctx.stroke();
+    ctx.fillStyle='rgba(0,0,0,0.38)'; ctx.beginPath(); ctx.arc(px, py, r*0.7, 0, Math.PI*2); ctx.fill();
+    ctx.fillText(EMOJI.pred[id % EMOJI.pred.length], px - r*0.42, py + r*0.25);
+    ctx.restore();
   }
 
   UI.out.t.textContent = world.time.toFixed(2);
