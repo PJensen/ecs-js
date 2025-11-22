@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ecs-js — Fishery Collapse Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1117;
+      --panel: #111827;
+      --accent: #67e8f9;
+      --warn: #fcd34d;
+      --err: #f87171;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: #e5e7eb;
+      padding: 1.25rem clamp(1rem, 2vw, 3rem);
+      line-height: 1.5;
+    }
+    h1 { margin: 0 0 0.25rem; }
+    p { margin: 0.25rem 0 0.5rem; max-width: 72ch; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 1rem;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      margin: 0 0 1rem;
+    }
+    .controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    label { font-size: 0.9rem; opacity: 0.85; }
+    input[type="number"] { width: 8rem; padding: 0.35rem 0.5rem; border-radius: 8px; border: 1px solid #243143; background: #0b1626; color: #e5e7eb; }
+    button {
+      border: 1px solid #243143;
+      border-radius: 8px;
+      padding: 0.5rem 0.9rem;
+      background: #172033;
+      color: #e5e7eb;
+      cursor: pointer;
+      transition: background 120ms ease, transform 120ms ease;
+    }
+    button:hover { background: #1f2b42; }
+    button:active { transform: translateY(1px); }
+    .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.65rem; border-radius: 999px; font-size: 0.85rem; background: #13203b; border: 1px solid #1f2937; }
+    .pill em { color: var(--accent); font-style: normal; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+    th, td { padding: 0.4rem 0.45rem; text-align: right; font-variant-numeric: tabular-nums; }
+    th { text-align: right; font-weight: 600; opacity: 0.8; }
+    tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
+    .status { text-align: left; }
+    .ok { color: #bef264; }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+    .small { font-size: 0.9rem; opacity: 0.8; }
+    .notes { white-space: pre-line; font-family: "SFMono-Regular", Consolas, monospace; background: #0b1626; padding: 0.75rem; border-radius: 10px; border: 1px solid #1f2937; }
+  </style>
+</head>
+<body>
+  <header class="panel">
+    <h1>Fishery collapse (one-shot demo)</h1>
+    <p>This deterministic scenario shows how <code>ecs-js</code> handles a complex feedback loop: a single fish stock grows logistically, a fleet harvests it, and a policy layer adapts fishing effort to prevent collapse.</p>
+    <div class="controls" aria-label="Simulation controls">
+      <label for="seed">Seed</label>
+      <input id="seed" type="number" value="1447" />
+      <label for="years">Years</label>
+      <input id="years" type="number" value="25" min="1" max="120" />
+      <button id="run">Run scenario</button>
+      <span class="pill" id="headline">Waiting to run…</span>
+    </div>
+    <p class="small">Adjust the seed or horizon, then re-run to replay the same dynamics. The world uses explicit phases (<code>growth → harvest → policy → log</code>) to keep causality readable.</p>
+  </header>
+
+  <section class="panel">
+    <h2>Year-by-year trajectory</h2>
+    <table aria-label="Fishery outcomes">
+      <thead>
+        <tr>
+          <th class="status">Year</th>
+          <th>Biomass (kt)</th>
+          <th>Catch (kt)</th>
+          <th>Effort</th>
+          <th>State</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Scenario notes</h2>
+    <div class="notes" id="notes"></div>
+  </section>
+
+  <script type="module">
+    import { World, defineComponent, defineTag } from '../core.js';
+    import { composeScheduler } from '../systems.js';
+
+    const Stock = defineComponent('Stock', { biomass: 120, carrying: 200, growth: 0.6, noise: 0.08 });
+    const Harvest = defineComponent('Harvest', { effort: 0.4, catchability: 0.03, maxEffort: 1.2 });
+    const CollapseGate = defineComponent('CollapseGate', { at: 0.25 });
+    const Pulse = defineComponent('Pulse', { catch: 0 });
+    const Year = defineComponent('Year', { value: 0 });
+    const Collapsed = defineTag('Collapsed');
+
+    const rowsEl = document.getElementById('rows');
+    const headlineEl = document.getElementById('headline');
+    const notesEl = document.getElementById('notes');
+    const seedInput = document.getElementById('seed');
+    const yearsInput = document.getElementById('years');
+    const runBtn = document.getElementById('run');
+
+    const fmt = (n, digits = 2) => Number(n).toFixed(digits);
+
+    const stateLabel = (ratio) => {
+      if (ratio < 0.15) return ['Collapsed', 'err'];
+      if (ratio < 0.35) return ['Precarious', 'warn'];
+      return ['Healthy', 'ok'];
+    };
+
+    function buildWorld(seed) {
+      const world = new World({ seed, store: 'map' });
+      world.setScheduler(composeScheduler('growth', 'harvest', 'policy', 'log'));
+
+      const stock = world.create();
+      world.add(stock, Stock, { biomass: 140, carrying: 220, growth: 0.58, noise: 0.06 });
+      world.add(stock, Harvest, { effort: 0.42, catchability: 0.028, maxEffort: 1.1 });
+      world.add(stock, CollapseGate, { at: 0.22 });
+      world.add(stock, Pulse, { catch: 0 });
+      world.add(stock, Year, { value: 0 });
+
+      world.system((w, dt) => {
+        for (const [_id, s] of w.query(Stock)) {
+          const growth = s.growth * s.biomass * (1 - s.biomass / s.carrying) * dt;
+          const jitter = (w.rand() - 0.5) * 2 * s.noise * s.biomass;
+          s.biomass = Math.max(1, Math.min(s.carrying, s.biomass + growth + jitter));
+        }
+      }, 'growth');
+
+      world.system((w, dt) => {
+        for (const [_id, s, h, pulse] of w.query(Stock, Harvest, Pulse)) {
+          const catchTarget = s.biomass * h.catchability * h.effort * dt;
+          const taken = Math.min(s.biomass, catchTarget);
+          s.biomass -= taken;
+          pulse.catch = taken;
+        }
+      }, 'harvest');
+
+      world.system((w) => {
+        for (const [id, s, h, gate] of w.query(Stock, Harvest, CollapseGate)) {
+          const ratio = s.biomass / s.carrying;
+          if (ratio < gate.at && !w.has(id, Collapsed)) w.add(id, Collapsed);
+
+          if (ratio < 0.35) {
+            h.effort = Math.max(0.05, h.effort * 0.86);
+          } else if (ratio > 0.65 && h.effort < h.maxEffort) {
+            h.effort = Math.min(h.maxEffort, h.effort * 1.06);
+          } else {
+            h.effort = Math.max(0.05, h.effort * 0.995);
+          }
+        }
+      }, 'policy');
+
+      return { world, stock };
+    }
+
+    function runScenario(seed, horizon) {
+      const { world, stock } = buildWorld(seed);
+      const history = [];
+
+      world.system((w) => {
+        const [s, h, pulse, year] = [w.get(stock, Stock), w.get(stock, Harvest), w.get(stock, Pulse), w.get(stock, Year)];
+        const ratio = s.biomass / s.carrying;
+        const [label, cls] = stateLabel(ratio);
+        year.value += 1;
+        history.push({
+          year: year.value,
+          biomass: s.biomass,
+          catch: pulse.catch,
+          effort: h.effort,
+          label,
+          cls,
+        });
+      }, 'log');
+
+      for (let i = 0; i < horizon; i++) world.tick(1);
+      return history;
+    }
+
+    function render(history) {
+      rowsEl.innerHTML = history.map((row) => `
+        <tr>
+          <td class="status">${row.year}</td>
+          <td>${fmt(row.biomass / 1000, 3)}</td>
+          <td>${fmt(row.catch / 1000, 3)}</td>
+          <td>${fmt(row.effort, 3)}</td>
+          <td class="${row.cls}">${row.label}</td>
+        </tr>
+      `).join('');
+
+      const latest = history[history.length - 1];
+      headlineEl.innerHTML = `Year <em>${latest.year}</em>: <span class="${latest.cls}">${latest.label}</span> (biomass ${fmt(latest.biomass / 1000, 2)} kt)`;
+      const highs = history.reduce((acc, r) => ({
+        maxBiomass: Math.max(acc.maxBiomass, r.biomass),
+        maxCatch: Math.max(acc.maxCatch, r.catch),
+        minBiomass: Math.min(acc.minBiomass, r.biomass),
+      }), { maxBiomass: 0, maxCatch: 0, minBiomass: Infinity });
+
+      const collapseYear = history.find((r) => r.label === 'Collapsed')?.year ?? '–';
+      notesEl.textContent = [
+        `Max biomass: ${fmt(highs.maxBiomass / 1000, 2)} kt`,
+        `Max catch:   ${fmt(highs.maxCatch / 1000, 2)} kt`,
+        `Min biomass: ${fmt(highs.minBiomass / 1000, 2)} kt`,
+        `Collapse year: ${collapseYear}`,
+        '',
+        'Phases executed each tick:',
+        '  1. growth  — logistic rebound with seeded noise',
+        '  2. harvest — fleet removes biomass using catchability & effort',
+        '  3. policy  — adaptive effort throttles back near collapse',
+        '  4. log     — capture a transcript row for the table',
+      ].join('\n');
+    }
+
+    function start() {
+      const seed = Number(seedInput.value) >>> 0;
+      const years = Math.max(1, Math.min(Number(yearsInput.value) || 0, 200));
+      seedInput.value = seed;
+      yearsInput.value = years;
+      const history = runScenario(seed, years);
+      render(history);
+    }
+
+    runBtn.addEventListener('click', start);
+    start();
+  </script>
+</body>
+</html>
