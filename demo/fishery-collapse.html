@@ -86,7 +86,11 @@
           <input id="seed" type="text" value="0xc0ffee" inputmode="numeric" />
           <label for="years">Years</label>
           <input id="years" type="number" value="30" min="1" max="160" />
-          <button id="run">Run scenario</button>
+          <button id="run">Restart</button>
+          <label class="pill" style="cursor:pointer;">
+            <input id="continuous" type="checkbox" checked style="accent-color:var(--accent);" />
+            Continuous
+          </label>
           <span class="pill" id="headline">Waiting to run…</span>
         </div>
         <div class="panel alt" style="margin:0.75rem 0 0;">
@@ -186,6 +190,7 @@
     const notesEl = document.getElementById('notes');
     const seedInput = document.getElementById('seed');
     const yearsInput = document.getElementById('years');
+    const continuousInput = document.getElementById('continuous');
     const runBtn = document.getElementById('run');
     const chartEl = document.getElementById('chart');
     const chartCtx = chartEl.getContext('2d');
@@ -224,6 +229,9 @@
       syncSlider(k);
       sliders[k].addEventListener('input', () => syncSlider(k));
     });
+
+    const HISTORY_LIMIT = 720;
+    let activeLoop = null;
 
     function buildWorld(seed, config) {
       const world = new World({ seed, store: 'map' });
@@ -322,7 +330,9 @@
       return { world, stock, fleet, boats };
     }
 
-    function runScenario(seed, horizon, config) {
+    function runScenario(seed, horizon, config, continuous) {
+      if (activeLoop) activeLoop.stop();
+
       const { world: simWorld, stock, fleet, boats } = buildWorld(seed, config);
       const history = [];
 
@@ -339,30 +349,33 @@
           effort: h.effort,
           label,
           cls,
-          collapseYear: gate.year,
         });
+        if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
       }, 'log');
 
-      return new Promise((resolve) => {
-        const loop = createRealtimeRafLoop({
-          world: { step: () => simWorld.tick(1) },
-          render: () => {
-            drawChart(history, horizon);
-            drawScene(simWorld, stock, fleet, boats, history[history.length - 1]);
-          },
-          afterFrame: () => {
-            if (history.length >= horizon) {
-              loop.stop();
-              resolve(history);
-            }
-          },
-        });
-
-        loop.start({ reset: true });
+      const loop = createRealtimeRafLoop({
+        world: { step: () => simWorld.tick(1) },
+        render: () => {
+          const view = history.slice(-horizon);
+          const gate = simWorld.get(stock, CollapseGate);
+          drawChart(view, horizon, gate);
+          drawScene(simWorld, stock, fleet, boats, view[view.length - 1], gate);
+        },
+        afterFrame: () => {
+          const view = history.slice(-horizon);
+          render(view, config, simWorld.get(stock, CollapseGate), horizon);
+          if (!continuous && history.length >= horizon) {
+            loop.stop();
+          }
+        },
       });
+
+      activeLoop = loop;
+      loop.start({ reset: true });
     }
 
-    function render(history, config) {
+    function render(history, config, gate, horizon) {
+      if (!history.length) return;
       rowsEl.innerHTML = history.map((row) => `
         <tr>
           <td class="status">${row.year}</td>
@@ -381,7 +394,7 @@
         minBiomass: Math.min(acc.minBiomass, r.biomass),
       }), { maxBiomass: 0, maxCatch: 0, minBiomass: Infinity });
 
-      const collapseYear = history.find((r) => r.label === 'Collapsed')?.collapseYear ?? '–';
+      const collapseYear = gate?.year ?? history.find((r) => r.label === 'Collapsed')?.year ?? '–';
       notesEl.textContent = [
         `Max biomass: ${fmt(highs.maxBiomass / 1000, 2)} kt`,
         `Max catch:   ${fmt(highs.maxCatch / 1000, 2)} kt`,
@@ -408,7 +421,7 @@
       ].join('\n');
     }
 
-    function drawChart(history, horizon) {
+    function drawChart(history, horizon, gate) {
       const padding = 36;
       const w = chartEl.width;
       const h = chartEl.height;
@@ -426,16 +439,17 @@
       }
 
       if (!history.length) return;
+      const baseYear = history[0]?.year ?? 1;
       const maxBiomass = Math.max(...history.map((d) => d.biomass));
       const maxCatch = Math.max(...history.map((d) => d.catch));
-      const xFor = (i) => padding + (i / Math.max(1, horizon - 1)) * (w - padding * 1.5);
+      const xFor = (year) => padding + ((year - baseYear) / Math.max(1, horizon - 1)) * (w - padding * 1.5);
       const yFor = (val, max) => h - padding - (val / Math.max(1, max)) * (h - padding * 1.75);
 
       chartCtx.beginPath();
-      history.forEach((d, i) => {
-        const x = xFor(i);
+      history.forEach((d) => {
+        const x = xFor(d.year);
         const y = yFor(d.biomass, maxBiomass);
-        if (i === 0) chartCtx.moveTo(x, y);
+        if (d.year === baseYear) chartCtx.moveTo(x, y);
         else chartCtx.lineTo(x, y);
       });
       chartCtx.strokeStyle = '#67e8f9';
@@ -446,10 +460,10 @@
       chartCtx.shadowBlur = 0;
 
       chartCtx.beginPath();
-      history.forEach((d, i) => {
-        const x = xFor(i);
+      history.forEach((d) => {
+        const x = xFor(d.year);
         const y = yFor(d.catch, maxCatch || 1);
-        if (i === 0) chartCtx.moveTo(x, y);
+        if (d.year === baseYear) chartCtx.moveTo(x, y);
         else chartCtx.lineTo(x, y);
       });
       chartCtx.strokeStyle = '#fcd34d';
@@ -457,11 +471,11 @@
       chartCtx.stroke();
 
       const latest = history[history.length - 1];
-      const collapsed = history.find((d) => d.label === 'Collapsed');
+      const collapsedYear = gate?.year ?? history.find((d) => d.label === 'Collapsed')?.year;
       chartCtx.fillStyle = '#e5e7eb';
       chartCtx.font = '12px system-ui, sans-serif';
-      if (collapsed) {
-        const cx = xFor((collapsed.collapseYear ?? collapsed.year) - 1);
+      if (collapsedYear) {
+        const cx = xFor(collapsedYear);
         chartCtx.strokeStyle = '#f87171';
         chartCtx.setLineDash([6, 5]);
         chartCtx.beginPath();
@@ -480,7 +494,7 @@
       return x - Math.floor(x);
     };
 
-    function drawScene(world, stock, fleet, boats, latestRow) {
+    function drawScene(world, stock, fleet, boats, latestRow, gate) {
       const w = sceneEl.width;
       const h = sceneEl.height;
       sceneCtx.clearRect(0, 0, w, h);
@@ -536,9 +550,9 @@
       sceneCtx.fillStyle = '#9ca3af';
       sceneCtx.font = '12px system-ui, sans-serif';
       sceneCtx.fillText(`Boats: ${world.get(fleet, FleetControl).fleetSize} | Effort: ${fmt(world.get(stock, Harvest).effort, 2)} | Biomass: ${fmt(s.biomass / 1000, 2)} kt`, 12, h - 12);
-      if (latestRow?.collapseYear) {
+      if (gate?.year) {
         sceneCtx.fillStyle = '#f87171';
-        sceneCtx.fillText(`Collapse detected in year ${latestRow.collapseYear}`, 12, 20);
+        sceneCtx.fillText(`Collapse detected in year ${gate.year}`, 12, 20);
       }
     }
 
@@ -555,7 +569,7 @@
       yearsInput.value = years;
       rowsEl.innerHTML = '';
       headlineEl.textContent = 'Running…';
-      runScenario(seed, years, config).then((history) => render(history, config));
+      runScenario(seed, years, config, continuousInput.checked);
     }
 
     runBtn.addEventListener('click', start);
