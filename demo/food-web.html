@@ -1,0 +1,385 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>ecs-js — Ecosystem Food-Web Sandbox</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#0b0f13; color:#d6ecff; font:14px/1.4 "Inter", system-ui, -apple-system, sans-serif; }
+  #wrap { display:grid; grid-template-columns:360px 1fr; height:100vh; }
+  #ui { padding:16px; border-right:1px solid #1f2632; overflow:auto; background:linear-gradient(180deg, rgba(24,32,44,.75), rgba(12,16,22,.9)); }
+  h1 { margin:0 0 6px; font-size:18px; letter-spacing:-0.01em; }
+  p.blurb { margin:0 0 12px; color:#9bb3c9; }
+  .row { margin:12px 0; }
+  .row label { display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#9bb3c9; margin:4px 0; }
+  input[type=range] { width:100%; }
+  .btns { display:flex; gap:8px; margin-top:8px; }
+  button { background:#133242; color:#b9eaff; border:1px solid #2b7da1; padding:7px 12px; border-radius:10px; cursor:pointer; }
+  button.sec { background:#161f29; border-color:#2c3c4d; color:#9bb3c9; }
+  .toggle-grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:12px; color:#9bb3c9; }
+  .toggle-grid label { display:flex; align-items:center; gap:6px; }
+  #hud { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0d131b; padding:10px; border-radius:12px; border:1px solid #1f2632; color:#8fe3c6; }
+  #log { height:120px; overflow:auto; background:#0a0f15; border:1px solid #1f2632; border-radius:10px; padding:8px; font:12px/1.5 ui-monospace, monospace; color:#9bb3c9; white-space:pre-wrap; }
+  canvas { width:100%; height:100%; display:block; background:#05070c; }
+</style>
+<div id="wrap">
+  <div id="ui">
+    <h1>Ecosystem Food-Web Sandbox</h1>
+    <p class="blurb">Plants, herbivores, and predators interact across a seasonal biome. Scripts orchestrate climate shocks; phases keep the causal order explicit.</p>
+    <div class="btns row">
+      <button id="play">▶ Play</button>
+      <button id="step" class="sec">Step</button>
+      <button id="reset" class="sec">Reset</button>
+    </div>
+    <div class="row">
+      <label>Sim speed (dt) <span id="dtVal"></span></label>
+      <input id="dt" type="range" min="0.02" max="0.30" step="0.01" value="0.12">
+    </div>
+    <div class="row"><b style="color:#9dd7ff">Biome</b></div>
+    <div class="row">
+      <label>Rainfall <span id="rainVal"></span></label>
+      <input id="rain" type="range" min="0.1" max="1.4" step="0.05" value="0.8">
+      <label>Sunlight <span id="sunVal"></span></label>
+      <input id="sun" type="range" min="0.1" max="1.5" step="0.05" value="1.0">
+      <label>Seasonal swing <span id="swingVal"></span></label>
+      <input id="swing" type="range" min="0.0" max="1.0" step="0.05" value="0.4">
+    </div>
+    <div class="row"><b style="color:#9dd7ff">Populations</b></div>
+    <div class="row">
+      <label>Start herbivores <span id="herbVal"></span></label>
+      <input id="herb" type="range" min="10" max="160" step="5" value="80">
+      <label>Start predators <span id="predVal"></span></label>
+      <input id="pred" type="range" min="2" max="80" step="2" value="24">
+      <label>Energy drain (all) <span id="drainVal"></span></label>
+      <input id="drain" type="range" min="0.1" max="2.5" step="0.05" value="1.1">
+    </div>
+    <div class="row"><b style="color:#9dd7ff">Display</b></div>
+    <div class="row toggle-grid">
+      <label><input id="showHeat" type="checkbox" checked> Plant biomass heatmap</label>
+      <label><input id="showTrails" type="checkbox" checked> Animal trails</label>
+      <label><input id="showSignals" type="checkbox" checked> Signals (events)</label>
+      <label><input id="showContours" type="checkbox" checked> Territories</label>
+    </div>
+    <div id="hud" class="row">
+      <span>Time</span><b id="tOut">0.00</b>
+      <span>Plants</span><b id="plantOut">—</b>
+      <span>Herbivores</span><b id="herbOut">—</b>
+      <span>Predators</span><b id="predOut">—</b>
+      <span>Events</span><b id="evtOut">—</b>
+      <span>Status</span><b id="statusOut">OK</b>
+    </div>
+    <div class="row">
+      <div>Event log</div>
+      <div id="log"></div>
+    </div>
+    <div class="row" style="font-size:11px; color:#7ea0b5;">Phases: climate → grow → sense → act → decay → render → scripts. Scripts inject seasonal shocks and territory beacons.</div>
+  </div>
+  <canvas id="cv"></canvas>
+</div>
+<script type="module">
+import {
+  World,
+  defineComponent,
+  defineTag,
+  defineArchetype,
+  withOverrides,
+  createFrom,
+  PHASE_SCRIPTS,
+} from '../index.js';
+
+const DEFAULT_SEED = 0xFEEDBEEF >>> 0;
+
+// ---------- Components ----------
+const Biome = defineComponent('Biome', { cols: 64, rows: 42, rainfall: 0.8, sunlight: 1.0, swing: 0.4 });
+const Field = defineComponent('Field', { plants: null, carrion: null, scent: null });
+const Season = defineComponent('Season', { t: 0, temp: 0, rainPulse: 1, drought: 0, flare: 0 });
+const Position = defineComponent('Position', { x: 0, y: 0 });
+const Velocity = defineComponent('Velocity', { dx: 0, dy: 0 });
+const Herbivore = defineComponent('Herbivore', { energy: 32, gestate: 0, lastMeal: 0 });
+const Predator = defineComponent('Predator', { energy: 46, hunger: 0, target: -1 });
+const Trail = defineComponent('Trail', { ttl: 12, hue: 180 });
+const Signal = defineComponent('Signal', { ttl: 3, label: 'shock', strength: 1 });
+const Metrics = defineComponent('Metrics', { plants: 0, herb: 0, pred: 0, events: 0 });
+const Beacon = defineTag('Beacon');
+
+// ---------- UI helpers ----------
+const UI = {
+  play: document.getElementById('play'),
+  step: document.getElementById('step'),
+  reset: document.getElementById('reset'),
+  dt: document.getElementById('dt'),
+  rain: document.getElementById('rain'),
+  sun: document.getElementById('sun'),
+  swing: document.getElementById('swing'),
+  herb: document.getElementById('herb'),
+  pred: document.getElementById('pred'),
+  drain: document.getElementById('drain'),
+  showHeat: document.getElementById('showHeat'),
+  showTrails: document.getElementById('showTrails'),
+  showSignals: document.getElementById('showSignals'),
+  showContours: document.getElementById('showContours'),
+  labels: {
+    dt: document.getElementById('dtVal'), rain: document.getElementById('rainVal'), sun: document.getElementById('sunVal'), swing: document.getElementById('swingVal'),
+    herb: document.getElementById('herbVal'), pred: document.getElementById('predVal'), drain: document.getElementById('drainVal'),
+  },
+  out: {
+    t: document.getElementById('tOut'), plants: document.getElementById('plantOut'), herb: document.getElementById('herbOut'),
+    pred: document.getElementById('predOut'), evt: document.getElementById('evtOut'), status: document.getElementById('statusOut'),
+  },
+  log: document.getElementById('log'),
+};
+
+function syncLabels(){
+  UI.labels.dt.textContent = +UI.dt.value;
+  UI.labels.rain.textContent = (+UI.rain.value).toFixed(2);
+  UI.labels.sun.textContent = (+UI.sun.value).toFixed(2);
+  UI.labels.swing.textContent = (+UI.swing.value).toFixed(2);
+  UI.labels.herb.textContent = +UI.herb.value;
+  UI.labels.pred.textContent = +UI.pred.value;
+  UI.labels.drain.textContent = (+UI.drain.value).toFixed(2);
+}
+[UI.dt,UI.rain,UI.sun,UI.swing,UI.herb,UI.pred,UI.drain].forEach(el=>el.addEventListener('input', syncLabels));
+syncLabels();
+
+const CV = (()=>{ const cv = document.getElementById('cv'); const ctx = cv.getContext('2d'); function fit(){ const dpr = window.devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); } window.addEventListener('resize', fit); fit(); return { cv, ctx }; })();
+
+const idx = (x,y,cols,rows)=>(( (y+rows)%rows)*cols + ((x+cols)%cols));
+
+function log(msg){ const time = new Date().toLocaleTimeString(); UI.log.textContent = `[${time}] ${msg}\n` + UI.log.textContent.slice(0, 2400); }
+
+// ---------- World construction ----------
+let world = null; let loopHandle = null; let playing = false;
+
+const Critter = defineArchetype('Critter', [Position, (p)=>({ x:p.x, y:p.y })], [Velocity, { dx:0, dy:0 }], [Trail, { ttl:8, hue:120 }]);
+const Grazer = withOverrides(Critter, { Herbivore: { energy:32, gestate:0, lastMeal:0 }, Trail: (_p,_w,_id,base)=>({ ...base, hue:110 }) });
+const Hunter = withOverrides(Critter, { Predator: { energy:46, hunger:0, target:-1 }, Trail: (_p,_w,_id,base)=>({ ...base, hue:10 }) });
+
+function seedField(cols, rows, rainfall, sunlight, rand){
+  const n = cols*rows; const plants = new Float32Array(n); const carrion = new Float32Array(n); const scent = new Float32Array(n);
+  for(let i=0;i<n;i++) plants[i] = (0.8 + 0.4*rand()) * 14 * rainfall * sunlight;
+  return { plants, carrion, scent };
+}
+
+function buildWorld(){
+  world = World.create({ seed: DEFAULT_SEED, store: 'map', debug: true })
+    .withPhases('climate','grow','sense','act','decay','render', PHASE_SCRIPTS)
+    .useScripts({ phase: PHASE_SCRIPTS })
+    .system(climateSystem, 'climate')
+    .system(growSystem, 'grow')
+    .system(senseSystem, 'sense')
+    .system(actSystem, 'act')
+    .system(decaySystem, 'decay')
+    .system(renderSystem, 'render')
+    .build();
+
+  world.on('shock', payload => { log(payload.msg); bumpEvents(1); });
+  world.on('spawn', payload => { log(payload.msg); bumpEvents(0.2); });
+
+  world.script('seasonal-shocks', (s) => {
+    s.onTick((_world, _id, dt) => {
+      for (const [id, season] of world.query(Season)) {
+        if (season.drought <= 0 && world.rand() < 0.0015 * dt) {
+          season.drought = 8 + world.rand()*12; world.emit('shock', { msg: 'Dry spell triggered' });
+          const sid = world.create();
+          world.add(sid, Signal, { ttl:6, label:'drought', strength:1.2 });
+          world.add(sid, Beacon);
+          world.add(sid, Position, { x:(world.rand()*season.cols)|0, y:(world.rand()*season.rows)|0 });
+        }
+        if (season.flare <= 0 && world.rand() < 0.0012 * dt) {
+          season.flare = 5 + world.rand()*8; world.emit('shock', { msg: 'Solar flare (predators sluggish)' });
+          const sid = world.create();
+          world.add(sid, Signal, { ttl:4, label:'flare', strength:1.4 });
+          world.add(sid, Position, { x:(world.rand()*season.cols)|0, y:(world.rand()*season.rows)|0 });
+        }
+      }
+    });
+  });
+
+  const biome = world.create();
+  const cols = 64, rows = 42;
+  world.add(biome, Biome, { cols, rows, rainfall: +UI.rain.value, sunlight: +UI.sun.value, swing: +UI.swing.value });
+  const { plants, carrion, scent } = seedField(cols, rows, +UI.rain.value, +UI.sun.value, world.rand);
+  world.add(biome, Field, { plants, carrion, scent });
+  world.add(biome, Season, { t: 0, temp: 0, rainPulse: 1, drought: 0, flare: 0, cols, rows });
+  world.add(biome, Metrics, { plants:0, herb:0, pred:0, events:0 });
+  world.addScript(biome, 'seasonal-shocks');
+
+  for(let i=0;i<+UI.herb.value;i++) spawnHerb();
+  for(let i=0;i<+UI.pred.value;i++) spawnPred();
+}
+
+function bumpEvents(x){ for (const [id, m] of world.query(Metrics)) world.set(id, Metrics, { ...m, events: m.events + x }); }
+
+function spawnHerb(){ const [meta, biome] = [...world.query(Biome)][0]; if (!biome) return; const id = createFrom(world, Grazer, { x:(world.rand()*biome.cols)|0, y:(world.rand()*biome.rows)|0 }); world.emit('spawn', { msg:'Herbivore born' }); return id; }
+function spawnPred(){ const [meta, biome] = [...world.query(Biome)][0]; if (!biome) return; const id = createFrom(world, Hunter, { x:(world.rand()*biome.cols)|0, y:(world.rand()*biome.rows)|0 }); world.emit('spawn', { msg:'Predator born' }); return id; }
+
+// ---------- Systems ----------
+function climateSystem(world, dt){
+  for(const [id, biome, field, season] of world.query(Biome, Field, Season)){
+    season.t += dt;
+    const seasonal = 0.5 + 0.5 * Math.sin(season.t * 0.15);
+    season.temp = biome.sunlight * (1 + biome.swing * (seasonal - 0.5));
+    season.rainPulse = biome.rainfall * (1 + biome.swing * (0.5 - seasonal));
+    if (season.drought > 0) season.rainPulse *= 0.35, season.drought -= dt;
+    if (season.flare > 0) season.temp *= 0.4, season.flare -= dt;
+  }
+}
+
+function growSystem(world, dt){
+  for(const [id, biome, field, season, metrics] of world.query(Biome, Field, Season, Metrics)){
+    const { cols, rows } = biome; const N = cols*rows; const drain = +UI.drain.value;
+    let totalPlants = 0;
+    for(let i=0;i<N;i++){
+      const grow = (0.25 + 0.8*season.rainPulse) * (0.5 + 0.5*season.temp);
+      const loss = 0.01 * field.carrion[i];
+      field.plants[i] = Math.max(0, field.plants[i] + dt * (grow - drain*0.02) - loss);
+      field.carrion[i] = Math.max(0, field.carrion[i] - dt * 0.5);
+      field.scent[i] = Math.max(0, field.scent[i] - dt * 0.6);
+      totalPlants += field.plants[i];
+    }
+    world.set(id, Metrics, { ...metrics, plants: totalPlants });
+  }
+}
+
+function chooseStep(world, x, y, role){
+  const [bid, biome, field, season] = world.query(Biome, Field, Season)[Symbol.iterator]().next().value || [];
+  if (!biome) return [x,y];
+  const { cols, rows } = biome; let best=[x,y], bestScore=-1e9;
+  for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+    const nx = (x+dx+cols)%cols, ny=(y+dy+rows)%rows; const i=idx(nx,ny,cols,rows);
+    const plant = field.plants[i]; const carr = field.carrion[i]; const sc = field.scent[i];
+    let score = role==='herb' ? plant - 0.2*carr + (sc*0.1) : carr*0.6 + plant*0.05 + sc*0.5;
+    score += (world.rand()*0.25);
+    if(score>bestScore){ bestScore=score; best=[nx,ny]; }
+  }
+  return best;
+}
+
+function senseSystem(world, dt){
+  for(const [id, herb] of world.query(Herbivore)){
+    const pos = world.get(id, Position); const [nx,ny] = chooseStep(world,pos.x,pos.y,'herb');
+    world.set(id, Velocity, { dx:nx-pos.x, dy:ny-pos.y });
+  }
+  for(const [id, pred] of world.query(Predator)){
+    const pos = world.get(id, Position);
+    let nearest=null, dist=9e9;
+    for(const [hid, hpos] of world.query(Position, Herbivore)){
+      const dx=hpos.x-pos.x, dy=hpos.y-pos.y; const d=dx*dx+dy*dy; if(d<dist){ dist=d; nearest=hpos; }
+    }
+    if(nearest){ const [nx,ny]=chooseStep(world,pos.x,pos.y,'pred'); world.set(id, Velocity, { dx: Math.sign(nearest.x-pos.x)||nx-pos.x, dy: Math.sign(nearest.y-pos.y)||ny-pos.y }); }
+  }
+}
+
+function actSystem(world, dt){
+  for(const [id, pos, vel] of world.query(Position, Velocity)){
+    pos.x += vel.dx; pos.y += vel.dy; const [bid, biome] = world.query(Biome)[Symbol.iterator]().next().value || [];
+    if(biome){ pos.x = (pos.x+biome.cols)%biome.cols; pos.y=(pos.y+biome.rows)%biome.rows; }
+  }
+  for(const [id, pos, herb] of world.query(Position, Herbivore)){
+    const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+    if(!biome) continue; const i=idx(pos.x,pos.y,biome.cols,biome.rows);
+    const bite = Math.min(field.plants[i], 2.5);
+    field.plants[i]-=bite; field.scent[i]+=0.5;
+    world.set(id, Herbivore, { ...herb, energy: herb.energy + bite*0.7, lastMeal: 0, gestate: herb.gestate + dt*bite*0.3 });
+    world.set(id, Trail, { ttl: 10, hue: 120 + 60*Math.random() });
+    if(herb.energy > 64 && herb.gestate > 6){ world.set(id, Herbivore, { ...herb, energy: herb.energy*0.5, gestate:0, lastMeal:0 }); spawnHerb(); }
+  }
+  for(const [id, pos, pred] of world.query(Position, Predator)){
+    const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+    if(!biome) continue; const i=idx(pos.x,pos.y,biome.cols,biome.rows);
+    let ate=false;
+    for(const [hid, hpos] of world.query(Position, Herbivore)){
+      if(hpos.x===pos.x && hpos.y===pos.y){ world.destroy(hid); field.carrion[i]+=2.5; ate=true; break; }
+    }
+    const gain = ate? 8 : 0;
+    world.set(id, Predator, { ...pred, energy: pred.energy + gain, hunger: pred.hunger + dt*(ate? -2:1) });
+    field.scent[i]+=1.2;
+    world.set(id, Trail, { ttl: 10, hue: 12 });
+    if(pred.energy>90){ world.set(id, Predator, { ...pred, energy: pred.energy*0.6, hunger:0 }); spawnPred(); }
+  }
+  for(const [id, sig] of world.query(Signal)){
+    world.mutate(id, Signal, s => { s.ttl -= dt; });
+    if(sig.ttl <= 0) world.destroy(id);
+  }
+}
+
+function decaySystem(world, dt){
+  const drain = +UI.drain.value;
+  for(const [id, herb, pos] of world.query(Herbivore, Position)){
+    const e = herb.energy - dt * drain;
+    const lm = herb.lastMeal + dt;
+    if(e <= 0 || lm>40){
+      const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+      if(biome){ const i=idx(pos.x,pos.y,biome.cols,biome.rows); field.carrion[i]+=4; field.scent[i]+=2; }
+      world.destroy(id);
+    } else {
+      world.set(id, Herbivore, { ...herb, energy: e, lastMeal: lm });
+    }
+  }
+  for(const [id, pred, pos] of world.query(Predator, Position)){
+    const e = pred.energy - dt * (drain*1.2 + pred.hunger*0.1);
+    if(e <= 0){
+      const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+      if(biome){ const i=idx(pos.x,pos.y,biome.cols,biome.rows); field.carrion[i]+=6; field.scent[i]+=3; }
+      world.destroy(id);
+    } else {
+      world.set(id, Predator, { ...pred, energy: e, hunger: Math.max(0, pred.hunger - dt*0.5) });
+    }
+  }
+  for(const [id, trail] of world.query(Trail)){
+    world.mutate(id, Trail, t => { t.ttl -= dt; });
+    if(trail.ttl <= 0) world.remove(id, Trail);
+  }
+}
+
+function renderSystem(world, _dt){
+  const { ctx, cv } = CV; ctx.clearRect(0,0,cv.width,cv.height);
+  const [bid, biome, field, season, metrics] = world.query(Biome, Field, Season, Metrics)[Symbol.iterator]().next().value || [];
+  if(!biome) return; const cw = cv.width / biome.cols, ch = cv.height / biome.rows;
+  if(UI.showHeat.checked){
+    for(let y=0;y<biome.rows;y++) for(let x=0;x<biome.cols;x++){
+      const i=idx(x,y,biome.cols,biome.rows);
+      const p = field.plants[i]; const h = Math.min(1, p / 30);
+      ctx.fillStyle = `hsl(${90 + h*80},70%,${15 + h*45}%)`;
+      ctx.fillRect(x*cw, y*ch, cw, ch);
+    }
+  }
+  if(UI.showContours.checked){
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)'; for(let x=0;x<=biome.cols;x+=8){ ctx.beginPath(); ctx.moveTo(x*cw,0); ctx.lineTo(x*cw,cv.height); ctx.stroke(); }
+    for(let y=0;y<=biome.rows;y+=8){ ctx.beginPath(); ctx.moveTo(0,y*ch); ctx.lineTo(cv.width,y*ch); ctx.stroke(); }
+  }
+  if(UI.showSignals.checked){
+    ctx.strokeStyle = 'rgba(255,118,84,0.7)'; ctx.fillStyle='rgba(255,118,84,0.4)';
+    for(const [id, pos, sig] of world.query(Position, Signal)){
+      const r = (2+sig.ttl*3); ctx.beginPath(); ctx.arc((pos.x+0.5)*cw,(pos.y+0.5)*ch,r,0,Math.PI*2); ctx.stroke(); ctx.fill();
+    }
+  }
+  if(UI.showTrails.checked){
+    for(const [id, pos, trail] of world.query(Position, Trail)){
+      ctx.fillStyle = `hsla(${trail.hue},80%,60%,${Math.max(0, trail.ttl/12)})`;
+      ctx.fillRect(pos.x*cw, pos.y*ch, cw, ch);
+    }
+  }
+  ctx.fillStyle='#b1f0c9';
+  for(const [id, pos] of world.query(Position, Herbivore)) ctx.fillRect(pos.x*cw+1, pos.y*ch+1, cw-2, ch-2);
+  ctx.fillStyle='#ff9f7f';
+  for(const [id, pos] of world.query(Position, Predator)) ctx.beginPath(), ctx.arc((pos.x+0.5)*cw,(pos.y+0.5)*ch, Math.min(cw,ch)/2.2, 0, Math.PI*2), ctx.fill();
+
+  UI.out.t.textContent = world.step.toFixed(2);
+  UI.out.plants.textContent = metrics ? metrics.plants.toFixed(0) : '—';
+  UI.out.herb.textContent = [...world.query(Herbivore)].length;
+  UI.out.pred.textContent = [...world.query(Predator)].length;
+  UI.out.evt.textContent = metrics ? metrics.events.toFixed(1) : '—';
+  UI.out.status.textContent = season && season.drought>0 ? 'Drought' : 'OK';
+}
+
+// ---------- Loop ----------
+function tick(dt){ world.tick(dt); }
+
+function frame(){ if(!playing) return; tick(+UI.dt.value); loopHandle = requestAnimationFrame(frame); }
+
+UI.play.addEventListener('click', ()=>{ playing=!playing; UI.play.textContent = playing?'⏸ Pause':'▶ Play'; if(playing){ loopHandle=requestAnimationFrame(frame); } else cancelAnimationFrame(loopHandle); });
+UI.step.addEventListener('click', ()=>{ if(!world) return; tick(+UI.dt.value); renderSystem(world,0); });
+UI.reset.addEventListener('click', ()=>{ playing=false; UI.play.textContent='▶ Play'; if(loopHandle) cancelAnimationFrame(loopHandle); buildWorld(); renderSystem(world,0); UI.log.textContent=''; });
+
+buildWorld(); renderSystem(world,0);
+</script>
