@@ -1,24 +1,38 @@
 // Demo that touches most ecs-js features
-// Open demo/index.html in a browser
+// Open index.html in a browser
 
 import {
-  World, defineComponent, defineTag, Not, Changed
-} from '../core.js';
-import {
-  defineArchetype, compose, createFrom, createMany, createDeferred, withOverrides, cloneFrom
-} from '../archetype.js';
-import {
-  registerSystem, setSystemOrder, getOrderedSystems, composeScheduler, clearSystems
-} from '../systems.js';
-import {
-  Parent, Sibling, ensureParent, childCount, attach, indexOf, nthChild
-} from '../hierarchy.js';
-import {
-  createCrossWorldReference, isCrossWorldReferenceValid, resolveCrossWorldReference
-} from '../crossWorld.js';
-import {
-  makeRegistry, serializeWorld, deserializeWorld
-} from '../serialization.js';
+  World,
+  defineComponent,
+  defineTag,
+  Not,
+  Changed,
+  defineArchetype,
+  compose,
+  createFrom,
+  createMany,
+  createDeferred,
+  withOverrides,
+  cloneFrom,
+  registerSystem,
+  setSystemOrder,
+  getOrderedSystems,
+  composeScheduler,
+  clearSystems,
+  Parent,
+  Sibling,
+  ensureParent,
+  childCount,
+  attach,
+  indexOf,
+  nthChild,
+  createCrossWorldReference,
+  isCrossWorldReferenceValid,
+  resolveCrossWorldReference,
+  makeRegistry,
+  serializeWorld,
+  deserializeWorld,
+} from '../index.js';
 
 const out = document.getElementById('out');
 const log = (msg, cls='') => { out.textContent += (out.textContent ? '\n' : '') + msg; if (cls) out.classList.add(cls); };

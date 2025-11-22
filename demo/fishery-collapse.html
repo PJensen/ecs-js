@@ -94,9 +94,13 @@
   <canvas id="cv"></canvas>
 </div>
 <script type="module">
-  import { World, defineComponent, defineTag } from '../core.js';
-  import { composeScheduler } from '../systems.js';
-  import { createRealtimeRafLoop } from '../adapters/raf-adapters.js';
+  import {
+    World,
+    defineComponent,
+    defineTag,
+    composeScheduler,
+    createRealtimeRafLoop,
+  } from '../index.js';
 
   const DEFAULT_SEED = 0xc0ffee >>> 0;
 
