@@ -46,11 +46,11 @@
     <div class="row"><b style="color:#9dd7ff">Populations</b></div>
     <div class="row">
       <label>Start herbivores <span id="herbVal"></span></label>
-      <input id="herb" type="range" min="10" max="160" step="5" value="80">
+      <input id="herb" type="range" min="10" max="200" step="5" value="120">
       <label>Start predators <span id="predVal"></span></label>
-      <input id="pred" type="range" min="2" max="80" step="2" value="24">
+      <input id="pred" type="range" min="2" max="90" step="2" value="28">
       <label>Energy drain (all) <span id="drainVal"></span></label>
-      <input id="drain" type="range" min="0.1" max="2.5" step="0.05" value="1.1">
+      <input id="drain" type="range" min="0.1" max="2.5" step="0.05" value="0.9">
     </div>
     <div class="row"><b style="color:#9dd7ff">Display</b></div>
     <div class="row toggle-grid">
@@ -190,6 +190,7 @@ function buildWorld(){
     .system(senseSystem, 'sense')
     .system(actSystem, 'act')
     .system(decaySystem, 'decay')
+    .system(balanceSystem, 'decay')
     .system(renderSystem, 'render')
     .build();
 
@@ -353,6 +354,26 @@ function decaySystem(world, dt){
   }
 }
 
+function balanceSystem(world, _dt){
+  const herbCount = [...world.query(Herbivore)].length;
+  const predCount = [...world.query(Predator)].length;
+  const targetHerb = Math.max(10, Math.floor(+UI.herb.value * 0.4));
+  const targetPred = Math.max(4, Math.floor(+UI.pred.value * 0.35));
+  const [mid, metrics] = world.query(Metrics)[Symbol.iterator]().next().value || [];
+  if(metrics){
+    world.set(mid, Metrics, { ...metrics, herb: herbCount, pred: predCount });
+  }
+
+  if(world.time > 0.5 && herbCount < targetHerb){
+    const missing = Math.min(targetHerb - herbCount, 12);
+    for(let i=0;i<missing;i++) spawnHerb();
+  }
+  if(world.time > 0.5 && predCount < targetPred && herbCount > targetHerb*0.5){
+    const missing = Math.min(targetPred - predCount, 6);
+    for(let i=0;i<missing;i++) spawnPred();
+  }
+}
+
 function renderSystem(world, _dt, statsView){
   const { ctx, cv } = CV; ctx.clearRect(0,0,cv.width,cv.height);
   const [bid, biome, field, season, metrics] = world.query(Biome, Field, Season, Metrics)[Symbol.iterator]().next().value || [];
@@ -418,8 +439,8 @@ function renderSystem(world, _dt, statsView){
 
   UI.out.t.textContent = world.time.toFixed(2);
   UI.out.plants.textContent = metrics ? metrics.plants.toFixed(0) : '—';
-  UI.out.herb.textContent = [...world.query(Herbivore)].length;
-  UI.out.pred.textContent = [...world.query(Predator)].length;
+  UI.out.herb.textContent = metrics ? metrics.herb : [...world.query(Herbivore)].length;
+  UI.out.pred.textContent = metrics ? metrics.pred : [...world.query(Predator)].length;
   UI.out.evt.textContent = metrics ? metrics.events.toFixed(1) : '—';
   UI.out.status.textContent = season && season.drought>0 ? `${EMOJI.drought} Drought` : season && season.flare>0 ? `${EMOJI.flare} Aurora` : `${EMOJI.sun} Stable`;
 }
