@@ -1,579 +1,403 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ecs-js — Fishery Collapse Demo</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0d1117;
-      --panel: #0f172a;
-      --panel-2: #111827;
-      --accent: #67e8f9;
-      --warn: #fcd34d;
-      --err: #f87171;
-    }
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, sans-serif;
-      background: radial-gradient(circle at 20% 20%, rgba(103, 232, 249, 0.08), transparent 30%),
-                  radial-gradient(circle at 70% 0%, rgba(252, 211, 77, 0.08), transparent 25%),
-                  var(--bg);
-      color: #e5e7eb;
-      padding: 1.25rem clamp(1rem, 2vw, 3rem);
-      line-height: 1.5;
-    }
-    h1 { margin: 0 0 0.25rem; letter-spacing: -0.01em; }
-    h2 { margin: 0 0 0.35rem; }
-    p { margin: 0.25rem 0 0.5rem; max-width: 80ch; }
-    .panel {
-      background: var(--panel);
-      border: 1px solid #1f2937;
-      border-radius: 14px;
-      padding: 1.1rem 1.15rem;
-      box-shadow: 0 12px 48px rgba(0,0,0,0.35);
-      margin: 0 0 1rem;
-    }
-    .panel.alt { background: var(--panel-2); }
-    .layout { display: grid; grid-template-columns: 1.1fr 1fr; gap: 1rem; align-items: stretch; }
-    .layout stack { display: block; }
-    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-    label { font-size: 0.9rem; opacity: 0.85; }
-    input[type="number"], input[type="text"] { width: 8rem; padding: 0.4rem 0.55rem; border-radius: 10px; border: 1px solid #243143; background: #0b1626; color: #e5e7eb; }
-    input[type="range"] { accent-color: var(--accent); cursor: pointer; }
-    .slider { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.75rem; align-items: center; }
-    .slider span { font-feature-settings: 'tnum' 1; opacity: 0.9; }
-    .slider small { opacity: 0.65; font-size: 0.8rem; }
-    button {
-      border: 1px solid #243143;
-      border-radius: 12px;
-      padding: 0.65rem 1.1rem;
-      background: linear-gradient(135deg, #1b273f, #19233a);
-      color: #e5e7eb;
-      cursor: pointer;
-      transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
-    }
-    button:hover { background: #1f2b42; box-shadow: 0 12px 30px rgba(103,232,249,0.18); }
-    button:active { transform: translateY(1px); }
-    .pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.7rem; border-radius: 999px; font-size: 0.85rem; background: #13203b; border: 1px solid #1f2937; }
-    .pill em { color: var(--accent); font-style: normal; font-weight: 700; }
-    table { width: 100%; border-collapse: collapse; margin-top: 0.35rem; }
-    th, td { padding: 0.45rem 0.45rem; text-align: right; font-variant-numeric: tabular-nums; }
-    th { text-align: right; font-weight: 600; opacity: 0.8; }
-    tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
-    .status { text-align: left; }
-    .ok { color: #bef264; }
-    .warn { color: var(--warn); }
-    .err { color: var(--err); }
-    .small { font-size: 0.9rem; opacity: 0.8; }
-    .notes { white-space: pre-line; font-family: "SFMono-Regular", Consolas, monospace; background: #0b1626; padding: 0.85rem; border-radius: 10px; border: 1px solid #1f2937; }
-    .scene-wrap { position: relative; }
-    canvas { border-radius: 10px; border: 1px solid #1f2937; background: #0b1626; }
-    .legend { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; opacity: 0.85; }
-    .chip { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
-    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
-  </style>
-</head>
-<body>
-  <header class="panel">
-    <div class="layout" style="align-items:flex-start; gap: 1.25rem;">
-      <div>
-        <h1>Fishery collapse (one-shot demo)</h1>
-        <p>Showcase of <code>ecs-js</code> as a simulation canvas: a stock grows logistically, boats search as agents, policy reins them in, and collapse detection trips a warning. All of it ticks deterministically from a single seed.</p>
-        <div class="controls" aria-label="Simulation controls">
-          <label for="seed">Seed</label>
-          <input id="seed" type="text" value="0xc0ffee" inputmode="numeric" />
-          <label for="years">Years</label>
-          <input id="years" type="number" value="30" min="1" max="160" />
-          <button id="run">Restart</button>
-          <label class="pill" style="cursor:pointer;">
-            <input id="continuous" type="checkbox" checked style="accent-color:var(--accent);" />
-            Continuous
-          </label>
-          <span class="pill" id="headline">Waiting to run…</span>
-        </div>
-        <div class="panel alt" style="margin:0.75rem 0 0;">
-          <div class="layout" style="grid-template-columns: 1fr 1fr; gap: 0.85rem;">
-            <div class="slider">
-              <div>
-                <label for="fleet">Fleet size</label><br />
-                <small>Boats act as agents; more boats amplify harvesting pressure.</small>
-              </div>
-              <span id="fleetValue">9</span>
-              <input id="fleet" type="range" min="3" max="20" value="9" step="1" />
-              <span></span>
-            </div>
-            <div class="slider">
-              <div>
-                <label for="effort">Base effort</label><br />
-                <small>Throttle each boat before policy/biomass feedback.</small>
-              </div>
-              <span id="effortValue">0.24</span>
-              <input id="effort" type="range" min="0.08" max="0.35" value="0.24" step="0.01" />
-              <span></span>
-            </div>
-            <div class="slider">
-              <div>
-                <label for="growth">Growth rate</label><br />
-                <small>Biomass rebound each year (logistic).</small>
-              </div>
-              <span id="growthValue">0.58</span>
-              <input id="growth" type="range" min="0.38" max="0.9" value="0.58" step="0.01" />
-              <span></span>
-            </div>
-            <div class="slider">
-              <div>
-                <label for="strict">Policy strictness</label><br />
-                <small>How aggressively the regulator throttles effort when biomass dips.</small>
-              </div>
-              <span id="strictValue">0.65</span>
-              <input id="strict" type="range" min="0.35" max="1.2" value="0.65" step="0.01" />
-              <span></span>
-            </div>
-          </div>
-        </div>
-        <p class="small">Phases each tick: <code>growth → fleet-search → harvest → policy → detect → log</code>. Adjust sliders then rerun to see how agents and policy reshape the outcome without breaking determinism.</p>
-      </div>
-      <div class="scene-wrap">
-        <canvas id="scene" width="460" height="280" aria-label="Boats searching for a fish school"></canvas>
+<meta charset="utf-8" />
+<title>ecs-js — Fishery Collapse (Agent Simulation)</title>
+<style>
+  :root { color-scheme: dark }
+  html,body { margin:0; background:#0b0f13; color:#d8f6de; font:14px/1.4 system-ui, sans-serif }
+  #wrap { display:grid; grid-template-columns: 360px 1fr; height:100vh }
+  #ui { padding:14px; border-right:1px solid #223; overflow:auto }
+  #ui h1{ font-size:16px; margin:0 0 8px }
+  .row{ margin:10px 0 }
+  label{ display:flex; justify-content:space-between; font-size:12px; color:#a7d7af }
+  input[type=range]{ width:100% }
+  .btns{ display:flex; gap:8px; margin:8px 0 4px }
+  button{ background:#19321e; color:#a7d7af; border:1px solid #2b5; padding:6px 10px; border-radius:8px; cursor:pointer }
+  button.sec{ background:#162126; border-color:#357; color:#9ad }
+  #hud{ font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#9ad7a0 }
+  #log{ height:110px; overflow:auto; background:#0006; padding:8px; border-radius:8px; border:1px solid #234 }
+  canvas{ width:100%; height:100%; display:block }
+  .kv{ display:grid; grid-template-columns:auto 1fr; gap:4px 8px; margin-top:6px }
+  .kv b{ color:#cfe }
+  .toggles { display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:12px; color:#a7d7af }
+  .toggles label{ display:flex; align-items:center; gap:6px; justify-content:flex-start }
+</style>
+<div id="wrap">
+  <div id="ui">
+    <h1>Fishery Collapse — Agent Simulation (ecs-js)</h1>
+    <div class="row btns">
+      <button id="play">▶ Play</button>
+      <button id="step" class="sec">Step</button>
+      <button id="reset" class="sec">Reset</button>
+    </div>
+    <div class="row">
+      <label>Sim speed (dt) <span id="dtVal"></span></label>
+      <input id="dt" type="range" min="0.02" max="0.50" step="0.02" value="0.10">
+    </div>
+
+    <div class="row"><b style="color:#a7d7af">Fish dynamics</b></div>
+    <div class="row">
+      <label>Recruit per fish (br) <span id="brVal"></span></label>
+      <input id="br" type="range" min="0.00" max="0.60" step="0.01" value="0.20">
+      <label>Natural mortality (m) <span id="mVal"></span></label>
+      <input id="m" type="range" min="0.00" max="0.40" step="0.01" value="0.05">
+      <label>Local K per cell <span id="KcVal"></span></label>
+      <input id="Kc" type="range" min="50" max="2000" step="10" value="400">
+      <label>Diffusion rate (D) <span id="DVal"></span></label>
+      <input id="D" type="range" min="0.00" max="0.60" step="0.01" value="0.20">
+    </div>
+
+    <div class="row"><b style="color:#a7d7af">Fleet & economy</b></div>
+    <div class="row">
+      <label>Initial boats <span id="boatsVal"></span></label>
+      <input id="boats" type="range" min="0" max="80" step="1" value="20">
+      <label>Catchability (q) <span id="qVal"></span></label>
+      <input id="q" type="range" min="0.001" max="0.10" step="0.001" value="0.02">
+      <label>Price per fish (p) <span id="pVal"></span></label>
+      <input id="p" type="range" min="0.1" max="20" step="0.1" value="3">
+      <label>Cost per tick (c) <span id="cVal"></span></label>
+      <input id="c" type="range" min="0.0" max="10" step="0.1" value="0.6">
+      <label>Entry/exit sensitivity (α) <span id="alphaVal"></span></label>
+      <input id="alpha" type="range" min="0.00" max="1.00" step="0.02" value="0.20">
+      <label>Search radius (cells) <span id="RVal"></span></label>
+      <input id="R" type="range" min="0" max="6" step="1" value="3">
+    </div>
+
+    <div class="row">
+      <label>Collapse threshold (% of total K) <span id="thVal"></span></label>
+      <input id="th" type="range" min="0.01" max="0.50" step="0.01" value="0.15">
+    </div>
+
+    <div class="row"><b style="color:#a7d7af">Display</b></div>
+    <div class="row toggles">
+      <label><input id="showFish" type="checkbox" checked> Show fish icons</label>
+      <label><input id="showHeat" type="checkbox" checked> Heatmap background</label>
+    </div>
+
+    <div id="hud" class="row">
+      <div class="kv">
+        <span>Time</span> <b id="tOut">0.00</b>
+        <span>Total Biomass</span> <b id="bOut">—</b>
+        <span>Boats</span> <b id="eOut">—</b>
+        <span>Catches/tick</span> <b id="cOut">—</b>
+        <span>Avg Profit</span> <b id="piOut">—</b>
+        <span>Status</span> <b id="statusOut">OK</b>
       </div>
     </div>
-    <div style="margin-top:1rem;">
-      <h2 style="margin:0 0 0.35rem;">Topline trajectory</h2>
-      <div class="legend">
-        <span class="chip" style="background:#67e8f9"></span> Biomass
-        <span class="chip" style="background:#fcd34d"></span> Catch
-        <span class="chip" style="background:#f87171"></span> Collapse gate
-      </div>
-      <canvas id="chart" width="980" height="260" aria-label="Biomass and catch over time"></canvas>
+    <div class="row">
+      <div>Events</div>
+      <div id="log"></div>
     </div>
-  </header>
+    <div class="row" style="font-size:11px; color:#8fb99a; line-height:1.3;">
+      Sources: Hilborn & Walters (1992, fisheries dynamics), Worm et al. (2009, collapse framing), FAO SOFIA 2022 (global stock status).
+    </div>
+  </div>
+  <canvas id="cv"></canvas>
+</div>
+<script type="module">
+  import { World, defineComponent, defineTag } from '../core.js';
+  import { composeScheduler } from '../systems.js';
+  import { createRealtimeRafLoop } from '../adapters/raf-adapters.js';
 
-  <section class="panel">
-    <h2>Year-by-year trajectory</h2>
-    <table aria-label="Fishery outcomes">
-      <thead>
-        <tr>
-          <th class="status">Year</th>
-          <th>Biomass (kt)</th>
-          <th>Catch (kt)</th>
-          <th>Effort</th>
-          <th>State</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </section>
+  const DEFAULT_SEED = 0xc0ffee >>> 0;
 
-  <section class="panel">
-    <h2>Scenario notes</h2>
-    <div class="notes" id="notes"></div>
-  </section>
+  const Grid      = defineComponent('Grid', { cols:32, rows:24, Kc:400, D:0.2, br:0.2, m:0.05 });
+  const Field     = defineComponent('Field',{ B:null });
+  const BoatsConf = defineComponent('BoatsConf',{ q:0.02, p:3, c:0.6, alpha:0.2, R:3 });
+  const Boat      = defineComponent('Boat',{ x:0, y:0, hx:1, hy:0, catch:0, profit:0 });
+  const Metrics   = defineComponent('Metrics',{ totalB:0, totalCatch:0, avgProfit:0 });
+  const Hist      = defineComponent('Hist',   { xs:[], B:[], E:[], C:[], PI:[] });
+  const Collapsed = defineTag('Collapsed');
 
-  <script type="module">
-    import { World, defineComponent, defineTag } from '../core.js';
-    import { composeScheduler } from '../systems.js';
-    import { createRealtimeRafLoop } from '../adapters/raf-adapters.js';
+  const clamp=(v,min,max)=>v<min?min:v>max?max:v;
+  const idx=(x,y,cols,rows)=>{ x=(x+cols)%cols; y=(y+rows)%rows; return y*cols+x; };
+  const neigh=(cx,cy,R,cols,rows)=>{ const out=[]; for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){ const x=(cx+dx+cols)%cols, y=(cy+dy+rows)%rows; out.push([x,y]); } return out; };
 
-    const Stock = defineComponent('Stock', { biomass: 120, carrying: 200, growth: 0.6, noise: 0.08 });
-    const Harvest = defineComponent('Harvest', { effort: 0.4, catchability: 0.03, maxEffort: 1.2 });
-    const CollapseGate = defineComponent('CollapseGate', { at: 0.25, detected: false, year: null });
-    const Pulse = defineComponent('Pulse', { catch: 0 });
-    const Year = defineComponent('Year', { value: 0 });
-    const FleetControl = defineComponent('FleetControl', { fleetSize: 9, baseEffort: 0.24, strictness: 0.65, search: 0.55 });
-    const Boat = defineComponent('Boat', { x: 0.4, y: 0.55, heading: 0, throttle: 0.6, color: '#67e8f9' });
-    const Collapsed = defineTag('Collapsed');
+  function drawFish(ctx, x, y, s){
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(s, s);
+    ctx.beginPath();
+    ctx.moveTo(-6,0); ctx.quadraticCurveTo(-2,-4,4,0); ctx.quadraticCurveTo(-2,4,-6,0);
+    ctx.moveTo(-8,0); ctx.lineTo(-12,-3); ctx.lineTo(-12,3); ctx.closePath();
+    ctx.fillStyle = '#7dd3fc'; ctx.fill();
+    ctx.beginPath(); ctx.arc(2,-1.2,1.2,0,Math.PI*2); ctx.fillStyle='#0b0f13'; ctx.fill();
+    ctx.restore();
+  }
+  function drawBoat(ctx, x, y, angle, s){
+    ctx.save(); ctx.translate(x,y); ctx.rotate(angle); ctx.scale(s,s);
+    ctx.beginPath();
+    ctx.moveTo(0,-8); ctx.lineTo(6,8); ctx.lineTo(-6,8); ctx.closePath();
+    ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#1b2a2f'; ctx.stroke();
+    ctx.restore();
+  }
 
-    const rowsEl = document.getElementById('rows');
-    const headlineEl = document.getElementById('headline');
-    const notesEl = document.getElementById('notes');
-    const seedInput = document.getElementById('seed');
-    const yearsInput = document.getElementById('years');
-    const continuousInput = document.getElementById('continuous');
-    const runBtn = document.getElementById('run');
-    const chartEl = document.getElementById('chart');
-    const chartCtx = chartEl.getContext('2d');
-    const sceneEl = document.getElementById('scene');
-    const sceneCtx = sceneEl.getContext('2d');
-    const sliders = {
-      fleet: document.getElementById('fleet'),
-      fleetValue: document.getElementById('fleetValue'),
-      effort: document.getElementById('effort'),
-      effortValue: document.getElementById('effortValue'),
-      growth: document.getElementById('growth'),
-      growthValue: document.getElementById('growthValue'),
-      strict: document.getElementById('strict'),
-      strictValue: document.getElementById('strictValue'),
-    };
-
-    const fmt = (n, digits = 2) => Number(n).toFixed(digits);
-
-    const stateLabel = (ratio) => {
-      if (ratio < 0.15) return ['Collapsed', 'err'];
-      if (ratio < 0.35) return ['Precarious', 'warn'];
-      return ['Healthy', 'ok'];
-    };
-
-    const wrap01 = (v) => {
-      if (v < 0) return 1 + (v % 1);
-      if (v > 1) return v % 1;
-      return v;
-    };
-
-    function syncSlider(key) {
-      sliders[`${key}Value`].textContent = fmt(sliders[key].value, key === 'fleet' ? 0 : 2);
+  const UI = {
+    dt: document.getElementById('dt'),
+    br: document.getElementById('br'),
+    m: document.getElementById('m'),
+    Kc: document.getElementById('Kc'),
+    D: document.getElementById('D'),
+    boats: document.getElementById('boats'),
+    q: document.getElementById('q'),
+    p: document.getElementById('p'),
+    c: document.getElementById('c'),
+    alpha: document.getElementById('alpha'),
+    R: document.getElementById('R'),
+    th: document.getElementById('th'),
+    showHeat: document.getElementById('showHeat'),
+    showFish: document.getElementById('showFish'),
+    labels: {
+      dt: document.getElementById('dtVal'), br: document.getElementById('brVal'), m: document.getElementById('mVal'),
+      Kc: document.getElementById('KcVal'), D: document.getElementById('DVal'), boats: document.getElementById('boatsVal'),
+      q: document.getElementById('qVal'), p: document.getElementById('pVal'), c: document.getElementById('cVal'),
+      alpha: document.getElementById('alphaVal'), R: document.getElementById('RVal'), th: document.getElementById('thVal'),
     }
+  };
+  function syncLabels(){
+    for(const k in UI.labels){ const el = UI[k]; if(el) UI.labels[k].textContent = (k==='th'? (+(el.value)*100).toFixed(0)+'%': +el.value); }
+  }
+  for (const el of [UI.dt,UI.br,UI.m,UI.Kc,UI.D,UI.boats,UI.q,UI.p,UI.c,UI.alpha,UI.R,UI.th]) el.addEventListener('input', syncLabels);
 
-    ['fleet', 'effort', 'growth', 'strict'].forEach((k) => {
-      syncSlider(k);
-      sliders[k].addEventListener('input', () => syncSlider(k));
-    });
+  const OUT = {
+    t: document.getElementById('tOut'), b: document.getElementById('bOut'), e: document.getElementById('eOut'),
+    c: document.getElementById('cOut'), pi: document.getElementById('piOut'), status: document.getElementById('statusOut'), log: document.getElementById('log'),
+  };
+  const CV = (()=>{ const cv=document.getElementById('cv'); const ctx=cv.getContext('2d'); function fit(){ const dpr=window.devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); } window.addEventListener('resize', fit); fit(); return { ctx, cv }; })();
 
-    const HISTORY_LIMIT = 720;
-    let activeLoop = null;
+  function spawnBoat(world){
+    const first = world.query(Grid)[Symbol.iterator]().next().value;
+    if(!first) return;
+    const [id, grid] = first;
+    const b = world.create();
+    const x = (world.rand()*grid.cols)|0, y=(world.rand()*grid.rows)|0;
+    world.add(b, Boat, { x, y, hx:1, hy:0, catch:0, profit:0 });
+  }
 
-    function buildWorld(seed, config) {
-      const world = new World({ seed, store: 'map' });
-      world.setScheduler(composeScheduler('growth', 'fleet', 'harvest', 'policy', 'detect', 'log'));
+  function seedField(cols, rows, Kc, rand){
+    const N=cols*rows; const B=new Float32Array(N);
+    for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+      const base = Kc*0.3 + Kc*0.2*rand();
+      B[idx(x,y,cols,rows)] = base;
+    }
+    return B;
+  }
 
-      const stock = world.create();
-      world.add(stock, Stock, { biomass: 160, carrying: 230, growth: config.growth, noise: 0.06 });
-      world.add(stock, Harvest, { effort: 0.42, catchability: 0.028, maxEffort: 1.15 });
-      world.add(stock, CollapseGate, { at: 0.22 });
-      world.add(stock, Pulse, { catch: 0 });
-      world.add(stock, Year, { value: 0 });
+  function fishRecruitMortDiffuse(world, dt){
+    for(const [id, grid, field] of world.query(Grid, Field)){
+      const {cols,rows,Kc,br,m,D} = grid; const B=field.B; const N=cols*rows;
+      for(let i=0;i<N;i++){
+        const Bi = B[i];
+        const births = (br*dt) * Bi * (1 - Bi / Kc);
+        const deaths = (m*dt) * Bi;
+        B[i] = Math.max(0, Bi + births - deaths);
+      }
+      if(D>0){
+        const out = new Float32Array(N);
+        for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+          const i=idx(x,y,cols,rows), Bi=B[i];
+          const leak = D*dt*Bi; const stay = Bi - leak; const share = leak/4;
+          out[i]+=stay;
+          out[idx(x+1,y,cols,rows)]+=share;
+          out[idx(x-1,y,cols,rows)]+=share;
+          out[idx(x,y+1,cols,rows)]+=share;
+          out[idx(x,y-1,cols,rows)]+=share;
+        }
+        field.B = out;
+      }
+    }
+  }
 
-      const fleet = world.create();
-      world.add(fleet, FleetControl, { fleetSize: config.fleetSize, baseEffort: config.baseEffort, strictness: config.strictness, search: 0.55 });
+  function boatBehavior(world, dt){
+    for(const [id, grid, field, conf] of world.query(Grid, Field, BoatsConf)){
+      const {cols,rows} = grid; const B=field.B; const R=conf.R|0; const q=conf.q;
+      for(const [bid, boat] of world.query(Boat)){
+        const cx=Math.round(boat.x), cy=Math.round(boat.y);
+        let bestX=cx,bestY=cy,bestB=B[idx(cx,cy,cols,rows)];
+        if(R>0){ for(const [x,y] of neigh(cx,cy,R,cols,rows)){ const v=B[idx(x,y,cols,rows)]; if(v>bestB){ bestB=v; bestX=x; bestY=y; } } }
+        const dx=Math.sign(bestX-cx), dy=Math.sign(bestY-cy);
+        if(dx!==0 || dy!==0){ boat.hx = dx; boat.hy = dy; }
+        boat.x = (cx+dx+cols)%cols; boat.y=(cy+dy+rows)%rows;
+        const i=idx(boat.x, boat.y, cols, rows); const avail=B[i];
+        const take = Math.min(avail, q*avail*dt);
+        B[i] = avail - take; boat.catch = take;
+      }
+    }
+  }
 
-      const boats = [];
-      for (let i = 0; i < config.fleetSize; i += 1) {
-        const angle = world.rand() * Math.PI * 2;
-        const radius = 0.1 + world.rand() * 0.1;
-        const boat = world.create();
-        world.add(boat, Boat, {
-          x: 0.45 + Math.cos(angle) * radius,
-          y: 0.55 + Math.sin(angle) * radius,
-          heading: angle,
-          throttle: 0.5 + (world.rand() - 0.5) * 0.25,
-          color: `hsl(${185 + i * 5}, 70%, 65%)`,
-        });
-        boats.push(boat);
+  function boatEconomy(world, dt){
+    for(const [id, conf] of world.query(BoatsConf)){
+      let totalCatch=0, totalProfit=0, n=0;
+      for(const [bid, boat] of world.query(Boat)){
+        const rev = conf.p * boat.catch;
+        const cost = conf.c * dt;
+        const profit = rev - cost;
+        boat.profit = profit; totalCatch += boat.catch; totalProfit += profit; n++;
+      }
+      const avg = n? totalProfit/n : 0;
+      for(const [mid, metrics] of world.query(Metrics)){
+        metrics.totalCatch = totalCatch; metrics.avgProfit = avg;
+      }
+    }
+  }
+
+  function fleetEntryExit(world, dt){
+    for(const [id, conf] of world.query(BoatsConf)){
+      const α = conf.alpha;
+      let avg=0; for(const [mid, metrics] of world.query(Metrics)){ avg = metrics.avgProfit; }
+      if(avg>0){ if(world.rand() < α * avg * dt){ spawnBoat(world); } }
+      else if(avg<0){ if(world.rand() < α * (-avg) * dt){ const boats=[...world.query(Boat)]; if(boats.length){ const removeId = boats[(world.rand()*boats.length)|0][0]; world.destroy(removeId); } } }
+    }
+  }
+
+  function metricsSystem(world, dt){
+    for(const [id, grid, field, metrics] of world.query(Grid, Field, Metrics)){
+      const totalB = field.B.reduce((a,b)=>a+b,0);
+      metrics.totalB = totalB;
+    }
+  }
+
+  function collapseDetector(world, dt){
+    for(const [id, grid, field, metrics] of world.query(Grid, Field, Metrics)){
+      const totalK = grid.cols*grid.rows*grid.Kc;
+      const thresh = UI.th.value * totalK;
+      const already = world.has(id, Collapsed);
+      if(metrics.totalB < thresh && !already){
+        world.add(id, Collapsed, {});
+        world.emit('collapse', { id, time:world.time, B:metrics.totalB, K:totalK });
+      }
+      if(metrics.totalB >= thresh && already){
+        world.remove(id, Collapsed);
+      }
+    }
+  }
+
+  function historySystem(world, dt){
+    for(const [id, grid, field, metrics, hist] of world.query(Grid, Field, Metrics, Hist)){
+      const boats = [...world.query(Boat)].length;
+      hist.xs.push(world.time); hist.B.push(metrics.totalB); hist.E.push(boats);
+      let catchNow=0, avgP=0, n=0; for(const [bid, boat] of world.query(Boat)){ catchNow+=boat.catch; avgP+=boat.profit; n++; }
+      hist.C.push(catchNow); hist.PI.push(n?avgP/n:0);
+      const N=900; if(hist.xs.length>N){ for(const k of ['xs','B','E','C','PI']) hist[k].shift(); }
+    }
+  }
+
+  function renderSystem(world, dt){
+    const ctx = CV.ctx, w = ctx.canvas.width, h = ctx.canvas.height;
+    ctx.clearRect(0,0,w,h);
+    for(const [id, grid, field, conf, metrics, hist] of world.query(Grid, Field, BoatsConf, Metrics, Hist)){
+      const {cols,rows,Kc}=grid; const B=field.B; const cellW = (w-240)/cols; const cellH = (h-20)/rows; const ox=10, oy=10;
+
+      if(UI.showHeat.checked){
+        for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+          const v=B[idx(x,y,cols,rows)]/Kc; const c = clamp(v,0,1);
+          const r = Math.floor(20 + 200*c), g=Math.floor(40 + 180*c), b=60;
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(ox + x*cellW, oy + y*cellH, Math.ceil(cellW), Math.ceil(cellH));
+        }
+      } else {
+        ctx.strokeStyle='#1b2a2f'; ctx.lineWidth=1;
+        for(let x=0;x<=cols;x++){ const gx=ox+x*cellW; ctx.beginPath(); ctx.moveTo(gx,oy); ctx.lineTo(gx,oy+rows*cellH); ctx.stroke(); }
+        for(let y=0;y<=rows;y++){ const gy=oy+y*cellH; ctx.beginPath(); ctx.moveTo(ox,gy); ctx.lineTo(ox+cols*cellW,gy); ctx.stroke(); }
       }
 
-      world.system((w, dt) => {
-        for (const [_id, s] of w.query(Stock)) {
-          const growth = s.growth * s.biomass * (1 - s.biomass / s.carrying) * dt;
-          const jitter = (w.rand() - 0.5) * 2 * s.noise * s.biomass;
-          s.biomass = Math.max(1, Math.min(s.carrying, s.biomass + growth + jitter));
-        }
-      }, 'growth');
-
-      world.system((w, dt) => {
-        const s = w.get(stock, Stock);
-        const h = w.get(stock, Harvest);
-        const control = w.get(fleet, FleetControl);
-        let totalThrottle = 0;
-        for (const [_id, boat] of w.query(Boat)) {
-          const tension = s.biomass / s.carrying;
-          const target = Math.min(1.25, Math.max(0.12, tension * 1.2));
-          boat.throttle += (target - boat.throttle) * (0.18 + control.strictness * 0.08);
-          boat.heading += (w.rand() - 0.5) * control.search * 0.6;
-          boat.x = wrap01(boat.x + Math.cos(boat.heading) * (0.0025 + control.baseEffort * 0.006) * boat.throttle * dt);
-          boat.y = wrap01(boat.y + Math.sin(boat.heading) * (0.0015 + control.baseEffort * 0.004) * boat.throttle * dt);
-          totalThrottle += boat.throttle;
-        }
-        const avgThrottle = totalThrottle / Math.max(1, control.fleetSize);
-        h.effort = Math.min(h.maxEffort, control.baseEffort * (0.6 + control.strictness * 0.7) * avgThrottle);
-      }, 'fleet');
-
-      world.system((w, dt) => {
-        for (const [_id, s, h, pulse] of w.query(Stock, Harvest, Pulse)) {
-          const catchTarget = s.biomass * h.catchability * h.effort * dt;
-          const taken = Math.min(s.biomass, catchTarget);
-          s.biomass -= taken;
-          pulse.catch = taken;
-        }
-      }, 'harvest');
-
-      world.system((w) => {
-        const s = w.get(stock, Stock);
-        const h = w.get(stock, Harvest);
-        const control = w.get(fleet, FleetControl);
-        const ratio = s.biomass / s.carrying;
-        if (ratio < 0.35) {
-          h.effort = Math.max(0.04, h.effort * (0.82 - control.strictness * 0.08));
-          control.baseEffort = Math.max(0.06, control.baseEffort * (0.9 - control.strictness * 0.06));
-          control.search = Math.max(0.25, control.search - 0.04);
-        } else if (ratio > 0.7 && h.effort < h.maxEffort) {
-          h.effort = Math.min(h.maxEffort, h.effort * (1.02 + control.strictness * 0.02));
-          control.baseEffort = Math.min(h.maxEffort, control.baseEffort * (1.01 + control.strictness * 0.012));
-          control.search = Math.min(0.95, control.search + 0.01);
-        } else {
-          control.baseEffort = Math.max(0.08, control.baseEffort * 0.995);
-          control.search = Math.max(0.3, control.search * 0.998);
-        }
-      }, 'policy');
-
-      world.system((w) => {
-        for (const [id, s, gate, year] of w.query(Stock, CollapseGate, Year)) {
-          const ratio = s.biomass / s.carrying;
-          if (ratio < gate.at && !gate.detected) {
-            gate.detected = true;
-            gate.year = year.value + 1;
-            if (!w.has(id, Collapsed)) w.add(id, Collapsed);
+      if(UI.showFish.checked){
+        for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+          const val=B[idx(x,y,cols,rows)];
+          const ratio = clamp(val / Kc,0,1);
+          const count = Math.max(0, Math.min(4, Math.round(ratio*4)));
+          for(let n=0;n<count;n++){
+            const fx = ox + x*cellW + (n%2?0.65:0.35)*cellW;
+            const fy = oy + y*cellH + (n<2?0.35:0.70)*cellH;
+            const s = Math.max(0.5, 0.9*ratio) * Math.min(cellW,cellH)/12;
+            drawFish(ctx, fx, fy, s);
           }
         }
-      }, 'detect');
-
-      return { world, stock, fleet, boats };
-    }
-
-    function runScenario(seed, horizon, config, continuous) {
-      if (activeLoop) activeLoop.stop();
-
-      const { world: simWorld, stock, fleet, boats } = buildWorld(seed, config);
-      const history = [];
-
-      simWorld.system((w) => {
-        const [s, h, pulse, year, gate] = [w.get(stock, Stock), w.get(stock, Harvest), w.get(stock, Pulse), w.get(stock, Year), w.get(stock, CollapseGate)];
-        const ratio = s.biomass / s.carrying;
-        const collapsed = w.has(stock, Collapsed);
-        const [label, cls] = collapsed ? ['Collapsed', 'err'] : stateLabel(ratio);
-        year.value += 1;
-        history.push({
-          year: year.value,
-          biomass: s.biomass,
-          catch: pulse.catch,
-          effort: h.effort,
-          label,
-          cls,
-        });
-        if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
-      }, 'log');
-
-      const loop = createRealtimeRafLoop({
-        world: { step: () => simWorld.tick(1) },
-        render: () => {
-          const view = history.slice(-horizon);
-          const gate = simWorld.get(stock, CollapseGate);
-          drawChart(view, horizon, gate);
-          drawScene(simWorld, stock, fleet, boats, view[view.length - 1], gate);
-        },
-        afterFrame: () => {
-          const view = history.slice(-horizon);
-          render(view, config, simWorld.get(stock, CollapseGate), horizon);
-          if (!continuous && history.length >= horizon) {
-            loop.stop();
-          }
-        },
-      });
-
-      activeLoop = loop;
-      loop.start({ reset: true });
-    }
-
-    function render(history, config, gate, horizon) {
-      if (!history.length) return;
-      rowsEl.innerHTML = history.map((row) => `
-        <tr>
-          <td class="status">${row.year}</td>
-          <td>${fmt(row.biomass / 1000, 3)}</td>
-          <td>${fmt(row.catch / 1000, 3)}</td>
-          <td>${fmt(row.effort, 3)}</td>
-          <td class="${row.cls}">${row.label}</td>
-        </tr>
-      `).join('');
-
-      const latest = history[history.length - 1];
-      headlineEl.innerHTML = `Year <em>${latest.year}</em>: <span class="${latest.cls}">${latest.label}</span> (biomass ${fmt(latest.biomass / 1000, 2)} kt)`;
-      const highs = history.reduce((acc, r) => ({
-        maxBiomass: Math.max(acc.maxBiomass, r.biomass),
-        maxCatch: Math.max(acc.maxCatch, r.catch),
-        minBiomass: Math.min(acc.minBiomass, r.biomass),
-      }), { maxBiomass: 0, maxCatch: 0, minBiomass: Infinity });
-
-      const collapseYear = gate?.year ?? history.find((r) => r.label === 'Collapsed')?.year ?? '–';
-      notesEl.textContent = [
-        `Max biomass: ${fmt(highs.maxBiomass / 1000, 2)} kt`,
-        `Max catch:   ${fmt(highs.maxCatch / 1000, 2)} kt`,
-        `Min biomass: ${fmt(highs.minBiomass / 1000, 2)} kt`,
-        `Collapse year: ${collapseYear}`,
-        '',
-        'Systems & phases:',
-        '  1. growth        — logistic rebound with seeded jitter',
-        '  2. fleet-search  — boat agents steer and contribute effort',
-        '  3. harvest       — biomass removed via catchability * effort',
-        '  4. policy        — regulator throttles effort near collapse',
-        '  5. detect        — tags collapse once biomass crosses a gate',
-        '  6. log           — capture a transcript row for the table',
-        '',
-        'Config knobs (deterministic):',
-        `  - fleet size:      ${config.fleetSize} boats`,
-        `  - base effort:     ${fmt(config.baseEffort, 2)} throttle`,
-        `  - growth rate:     ${fmt(config.growth, 2)} logistic`,
-        `  - policy strict.:  ${fmt(config.strictness, 2)} multiplier`,
-        '',
-        'Sources:',
-        '  - Hilborn & Walters (1992) “Quantitative Fisheries Stock Assessment” — logistic growth & harvest control rules (Ch. 2-4)',
-        '  - FAO Fisheries Circular 1011 (2006) — collapse thresholds & rebuilding heuristics',
-      ].join('\n');
-    }
-
-    function drawChart(history, horizon, gate) {
-      const padding = 36;
-      const w = chartEl.width;
-      const h = chartEl.height;
-      chartCtx.clearRect(0, 0, w, h);
-      chartCtx.fillStyle = '#0b1626';
-      chartCtx.fillRect(0, 0, w, h);
-      chartCtx.strokeStyle = '#1f2937';
-      chartCtx.lineWidth = 1;
-      for (let y = 0; y <= 4; y++) {
-        const yPos = padding + ((h - padding * 1.5) / 4) * y;
-        chartCtx.beginPath();
-        chartCtx.moveTo(padding, yPos);
-        chartCtx.lineTo(w - padding / 2, yPos);
-        chartCtx.stroke();
       }
 
-      if (!history.length) return;
-      const baseYear = history[0]?.year ?? 1;
-      const maxBiomass = Math.max(...history.map((d) => d.biomass));
-      const maxCatch = Math.max(...history.map((d) => d.catch));
-      const xFor = (year) => padding + ((year - baseYear) / Math.max(1, horizon - 1)) * (w - padding * 1.5);
-      const yFor = (val, max) => h - padding - (val / Math.max(1, max)) * (h - padding * 1.75);
-
-      chartCtx.beginPath();
-      history.forEach((d) => {
-        const x = xFor(d.year);
-        const y = yFor(d.biomass, maxBiomass);
-        if (d.year === baseYear) chartCtx.moveTo(x, y);
-        else chartCtx.lineTo(x, y);
-      });
-      chartCtx.strokeStyle = '#67e8f9';
-      chartCtx.lineWidth = 2.5;
-      chartCtx.shadowColor = 'rgba(103, 232, 249, 0.35)';
-      chartCtx.shadowBlur = 12;
-      chartCtx.stroke();
-      chartCtx.shadowBlur = 0;
-
-      chartCtx.beginPath();
-      history.forEach((d) => {
-        const x = xFor(d.year);
-        const y = yFor(d.catch, maxCatch || 1);
-        if (d.year === baseYear) chartCtx.moveTo(x, y);
-        else chartCtx.lineTo(x, y);
-      });
-      chartCtx.strokeStyle = '#fcd34d';
-      chartCtx.lineWidth = 2;
-      chartCtx.stroke();
-
-      const latest = history[history.length - 1];
-      const collapsedYear = gate?.year ?? history.find((d) => d.label === 'Collapsed')?.year;
-      chartCtx.fillStyle = '#e5e7eb';
-      chartCtx.font = '12px system-ui, sans-serif';
-      if (collapsedYear) {
-        const cx = xFor(collapsedYear);
-        chartCtx.strokeStyle = '#f87171';
-        chartCtx.setLineDash([6, 5]);
-        chartCtx.beginPath();
-        chartCtx.moveTo(cx, padding / 2);
-        chartCtx.lineTo(cx, h - padding / 2);
-        chartCtx.stroke();
-        chartCtx.setLineDash([]);
+      for(const [bid, boat] of world.query(Boat)){
+        const bx = ox + (boat.x+0.5)*cellW;
+        const by = oy + (boat.y+0.5)*cellH;
+        const ang = Math.atan2(boat.hy, boat.hx);
+        drawBoat(ctx, bx, by, ang, Math.min(cellW,cellH)/12);
       }
 
-      chartCtx.fillStyle = '#9ca3af';
-      chartCtx.fillText(`Latest biomass: ${fmt(latest.biomass / 1000, 2)} kt`, w - 240, 16);
+      const gx = w-220, gy=10, gw=210, gh=(h-30)/2-10;
+      const N=hist.xs.length; if(N>1){
+        const tmin=hist.xs[0], tmax=hist.xs[N-1];
+        ctx.strokeStyle='#1b2a2f'; ctx.strokeRect(gx,gy,gw,gh); ctx.strokeRect(gx,gy+gh+20,gw,gh);
+        const X=(t)=> gx + gw*(t-tmin)/(tmax-tmin||1);
+        const Bmax = grid.cols*grid.rows*grid.Kc;
+        const Y1=(v)=> gy + gh - gh*(v/Bmax);
+        ctx.strokeStyle='#8af0c0'; ctx.beginPath(); ctx.moveTo(X(hist.xs[0]), Y1(hist.B[0]));
+        for(let i=1;i<N;i++) ctx.lineTo(X(hist.xs[i]), Y1(hist.B[i])); ctx.stroke();
+        const Emax = 100;
+        const Y2=(v)=> gy+gh+20 + gh - gh*(v/Emax);
+        ctx.strokeStyle='#7db6ff'; ctx.beginPath(); ctx.moveTo(X(hist.xs[0]), Y2(hist.E[0]));
+        for(let i=1;i<N;i++) ctx.lineTo(X(hist.xs[i]), Y2(hist.E[i])); ctx.stroke();
+        ctx.strokeStyle='#ff6b6b'; ctx.setLineDash([6,6]); ctx.beginPath();
+        const th = UI.th.value * Bmax; ctx.moveTo(gx, Y1(th)); ctx.lineTo(gx+gw, Y1(th)); ctx.stroke(); ctx.setLineDash([]);
+        ctx.font='12px ui-monospace'; ctx.fillStyle='#a7d7af'; ctx.fillText('Biomass', gx+6, gy+14); ctx.fillText('Boats', gx+6, gy+gh+20+14);
+        ctx.fillText('🐟 = fish density, ▲ = boats', gx+6, gy+gh*2+30);
+      }
+
+      OUT.t.textContent = world.time.toFixed(2);
+      OUT.b.textContent = metrics.totalB.toFixed(0);
+      OUT.e.textContent = [...world.query(Boat)].length;
+      OUT.c.textContent = metrics.totalCatch.toFixed(2);
+      OUT.pi.textContent = metrics.avgProfit.toFixed(2);
+      const totalK = grid.cols*grid.rows*grid.Kc;
+      const collapsed = metrics.totalB < UI.th.value*totalK; OUT.status.textContent = collapsed? 'COLLAPSED':'OK'; OUT.status.style.color = collapsed? '#ff9a9a':'#9ad7a0';
     }
+  }
 
-    const pseudo = (seed, salt = 1) => {
-      const x = Math.sin(seed * 127.1 + salt * 311.7) * 43758.5453;
-      return x - Math.floor(x);
-    };
+  function makeWorld(){
+    const w = new World({ seed: DEFAULT_SEED });
+    const root = w.create();
+    const cols=32, rows=24;
+    w.add(root, Grid, { cols, rows, Kc:+UI.Kc.value, D:+UI.D.value, br:+UI.br.value, m:+UI.m.value });
+    w.add(root, Field, { B: seedField(cols, rows, +UI.Kc.value, w.rand) });
+    w.add(root, BoatsConf, { q:+UI.q.value, p:+UI.p.value, c:+UI.c.value, alpha:+UI.alpha.value, R:+UI.R.value|0 });
+    w.add(root, Metrics, { totalB:0, totalCatch:0, avgProfit:0 });
+    w.add(root, Hist, { xs:[], B:[], E:[], C:[], PI:[] });
 
-    function drawScene(world, stock, fleet, boats, latestRow, gate) {
-      const w = sceneEl.width;
-      const h = sceneEl.height;
-      sceneCtx.clearRect(0, 0, w, h);
-      sceneCtx.fillStyle = '#0b1626';
-      sceneCtx.fillRect(0, 0, w, h);
+    const nBoats = +UI.boats.value; for(let i=0;i<nBoats;i++) spawnBoat(w);
 
-      const s = world.get(stock, Stock);
-      const ratio = s.biomass / s.carrying;
-      const glow = Math.max(0.18, Math.min(0.9, ratio));
-      const schoolRadius = 60 + ratio * 70;
-      const centerX = w * 0.55;
-      const centerY = h * 0.52 + (pseudo((latestRow?.year || 0) + ratio, 2) - 0.5) * 12;
+    function bind(el, Comp, key){ el.addEventListener('input', ()=>{ const rec=w.get(root,Comp); rec[key]= (key==='R')? (el.value|0): +el.value; }); }
+    bind(UI.Kc, Grid, 'Kc'); bind(UI.D, Grid, 'D'); bind(UI.br, Grid, 'br'); bind(UI.m, Grid, 'm');
+    bind(UI.q, BoatsConf, 'q'); bind(UI.p, BoatsConf, 'p'); bind(UI.c, BoatsConf, 'c'); bind(UI.alpha, BoatsConf, 'alpha'); bind(UI.R, BoatsConf, 'R');
 
-      const shimmer = (i) => 0.85 + (pseudo(i, ratio) - 0.5) * 0.2;
-      sceneCtx.fillStyle = `rgba(103, 232, 249, ${glow * 0.4})`;
-      sceneCtx.beginPath();
-      sceneCtx.ellipse(centerX, centerY, schoolRadius, schoolRadius * 0.6, 0, 0, Math.PI * 2);
-      sceneCtx.fill();
+    w.on('collapse', ev => { OUT.log.innerHTML = `<div>t=${ev.time.toFixed(2)} — <span style="color:#ff9a9a">COLLAPSE</span> (B=${ev.B.toFixed(0)})</div>` + OUT.log.innerHTML; });
 
-      for (let i = 0; i < 120; i += 1) {
-        const angle = (pseudo(i, latestRow?.year || 0) + i * 0.01) * Math.PI * 2;
-        const r = schoolRadius * (0.15 + shimmer(i) * 0.4) * (pseudo(i, 5) * 0.75);
-        const x = centerX + Math.cos(angle) * r;
-        const y = centerY + Math.sin(angle) * r * 0.6;
-        sceneCtx.fillStyle = `rgba(103, 232, 249, ${0.15 + glow * 0.35})`;
-        sceneCtx.beginPath();
-        sceneCtx.arc(x, y, 2 + shimmer(i) * 1.6, 0, Math.PI * 2);
-        sceneCtx.fill();
-      }
+    w.system(fishRecruitMortDiffuse, 'fish');
+    w.system(boatBehavior,           'boats');
+    w.system(boatEconomy,            'econ');
+    w.system(fleetEntryExit,         'econ');
+    w.system(metricsSystem,          'metrics');
+    w.system(collapseDetector,       'monitor');
+    w.system(historySystem,          'record');
+    w.system(renderSystem,           'render');
 
-      for (const [_id, boat] of world.query(Boat)) {
-        const x = boat.x * w;
-        const y = boat.y * h;
-        const size = 12 + boat.throttle * 6;
-        sceneCtx.save();
-        sceneCtx.translate(x, y);
-        sceneCtx.rotate(boat.heading);
-        sceneCtx.fillStyle = boat.color;
-        sceneCtx.beginPath();
-        sceneCtx.moveTo(size, 0);
-        sceneCtx.lineTo(-size * 0.6, size * 0.55);
-        sceneCtx.lineTo(-size * 0.6, -size * 0.55);
-        sceneCtx.closePath();
-        sceneCtx.fill();
-        sceneCtx.fillStyle = '#0b1626';
-        sceneCtx.globalAlpha = 0.4;
-        sceneCtx.beginPath();
-        sceneCtx.ellipse(-size * 0.2, 0, size * 0.9, size * 0.55, 0, 0, Math.PI * 2);
-        sceneCtx.fill();
-        sceneCtx.restore();
-      }
+    w.setScheduler(composeScheduler('fish','boats','econ','metrics','monitor','record','render'));
+    w.step = () => w.tick(+UI.dt.value);
+    return w;
+  }
 
-      sceneCtx.fillStyle = '#9ca3af';
-      sceneCtx.font = '12px system-ui, sans-serif';
-      sceneCtx.fillText(`Boats: ${world.get(fleet, FleetControl).fleetSize} | Effort: ${fmt(world.get(stock, Harvest).effort, 2)} | Biomass: ${fmt(s.biomass / 1000, 2)} kt`, 12, h - 12);
-      if (gate?.year) {
-        sceneCtx.fillStyle = '#f87171';
-        sceneCtx.fillText(`Collapse detected in year ${gate.year}`, 12, 20);
-      }
-    }
+  let world = null, loop = null;
+  function reset(){
+    loop?.stop();
+    world = makeWorld();
+    loop = createRealtimeRafLoop({ world });
+    OUT.log.textContent='';
+  }
+  function step(){ world?.tick(+UI.dt.value); }
+  function togglePlay(){
+    if(!loop || !world) return;
+    if(loop.isRunning()) { loop.stop(); document.getElementById('play').textContent='▶ Play'; }
+    else { document.getElementById('play').textContent='⏸ Pause'; loop.start(); }
+  }
 
-    function start() {
-      const seed = parseInt(seedInput.value, 0) >>> 0;
-      const years = Math.max(1, Math.min(Number(yearsInput.value) || 0, 200));
-      const config = {
-        fleetSize: Number(sliders.fleet.value),
-        baseEffort: Number(sliders.effort.value),
-        growth: Number(sliders.growth.value),
-        strictness: Number(sliders.strict.value),
-      };
-      seedInput.value = seed;
-      yearsInput.value = years;
-      rowsEl.innerHTML = '';
-      headlineEl.textContent = 'Running…';
-      runScenario(seed, years, config, continuousInput.checked);
-    }
+  document.getElementById('play').onclick = () => { togglePlay(); };
+  document.getElementById('step').onclick = () => { if(!loop?.isRunning()) step(); };
+  document.getElementById('reset').onclick = () => { reset(); };
 
-    runBtn.addEventListener('click', start);
-    start();
-  </script>
-</body>
-</html>
+  syncLabels(); reset();
+</script>
