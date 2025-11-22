@@ -1,7 +1,4 @@
-Alpha Release Coming Soon! (This Weekend)
-
-# ECS.js
-
+# ECS.js 
 Entity–Component–System architecture for JavaScript
 Zero dependencies. No build step. Deterministic, phase-agnostic, and caller-driven — your loop, your rules.
 
@@ -10,6 +7,8 @@ Purpose-built for agents of all kinds — from autonomous copilots to code-canva
 Suitable for both discrete-event and real-time updates.
 
 `ecs-js` is a minimal, browser-friendly ECS core designed for simulations, roguelikes, and other logic-driven systems that demand determinism and composability, especially when agents need transparent, step-based control.
+
+[Visit Built-in Demos](https://pjensen.github.io/ecs-js/)
 
 ---
 
