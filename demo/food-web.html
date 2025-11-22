@@ -1,30 +1,33 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>ecs-js — Ecosystem Food-Web Sandbox</title>
+<title>ecs-js — Wildlands RTS</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:#05070c radial-gradient(circle at 20% 20%, #16304a55 0%, transparent 45%); color:#d6ecff; font:14px/1.4 "Inter", system-ui, -apple-system, sans-serif; }
-  #wrap { display:grid; grid-template-columns:360px 1fr; height:100vh; }
-  #ui { padding:16px; border-right:1px solid #1f2632; overflow:auto; background:linear-gradient(180deg, rgba(24,32,44,.9), rgba(7,10,14,.95)), radial-gradient(circle at 80% 10%, #145d7255 0%, transparent 35%); box-shadow:0 0 40px #0af2; }
-  h1 { margin:0 0 6px; font-size:18px; letter-spacing:-0.01em; text-shadow:0 0 12px #5cfb; }
+  html, body { margin:0; height:100%; background:#05070c; color:#e6f6ff; font:14px/1.4 "Inter", system-ui, -apple-system, sans-serif; }
+  #wrap { display:grid; grid-template-columns:340px 1fr; height:100vh; }
+  #ui { padding:16px; border-right:1px solid #16212f; overflow:auto; background:radial-gradient(circle at 15% 10%, rgba(88,160,255,.18), transparent 40%),
+         radial-gradient(circle at 80% 20%, rgba(255,120,180,.14), transparent 48%),
+         linear-gradient(180deg, #0a101a 0%, #05070c 60%, #06070c 100%);
+         box-shadow:0 0 60px #0af1 inset; }
+  h1 { margin:0 0 6px; font-size:18px; letter-spacing:-0.01em; text-shadow:0 0 12px #7af5; }
   p.blurb { margin:0 0 12px; color:#9bb3c9; }
   .row { margin:12px 0; }
   .row label { display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#9bb3c9; margin:4px 0; }
-  input[type=range] { width:100%; }
+  input[type=range] { width:100%; accent-color:#78f4ff; }
   .btns { display:flex; gap:8px; margin-top:8px; }
-  button { background:linear-gradient(145deg,#0c415d,#0d2342); color:#b9eaff; border:1px solid #2b7da1; padding:7px 12px; border-radius:12px; cursor:pointer; box-shadow:0 0 16px #0af4 inset,0 0 10px #0af3; }
-  button.sec { background:#161f29; border-color:#2c3c4d; color:#9bb3c9; }
+  button { background:linear-gradient(145deg,#0c3d5c,#102445); color:#b9eaff; border:1px solid #2b7da1; padding:8px 13px; border-radius:14px; cursor:pointer; box-shadow:0 0 18px #0af5 inset,0 0 10px #0af3; }
+  button.sec { background:#121926; border-color:#2c3c4d; color:#9bb3c9; box-shadow:none; }
   .toggle-grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:12px; color:#9bb3c9; }
   .toggle-grid label { display:flex; align-items:center; gap:6px; }
-  #hud { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0d131b; padding:10px; border-radius:12px; border:1px solid #1f2632; color:#8fe3c6; }
-  #log { height:120px; overflow:auto; background:#0a0f15; border:1px solid #1f2632; border-radius:10px; padding:8px; font:12px/1.5 ui-monospace, monospace; color:#9bb3c9; white-space:pre-wrap; }
-  canvas { width:100%; height:100%; display:block; background:#03050b; }
+  #hud { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0b111c; padding:10px; border-radius:12px; border:1px solid #1f2632; color:#aaf0da; }
+  #log { height:120px; overflow:auto; background:#090f17; border:1px solid #1f2632; border-radius:10px; padding:8px; font:12px/1.5 ui-monospace, monospace; color:#9bb3c9; white-space:pre-wrap; }
+  canvas { width:100%; height:100%; display:block; background:#04060b; }
 </style>
 <div id="wrap">
   <div id="ui">
-    <h1>🌿 Ecosystem Food-Web Sandbox 🌌</h1>
-    <p class="blurb">Plants, herbivores, and predators interact across a seasonal biome. Scripts orchestrate climate shocks; phases keep the causal order explicit.</p>
+    <h1>🐾 Wildlands Command 🌌</h1>
+    <p class="blurb">An RTS-flavored biome: plants bloom, grazers sweep in flocks, and predators prowl with command arrows. Seasonal scripts strike at random.</p>
     <div class="btns row">
       <button id="play">▶️ Play</button>
       <button id="step" class="sec">⏭️ Step</button>
@@ -34,30 +37,30 @@
       <label>Sim speed (dt) <span id="dtVal"></span></label>
       <input id="dt" type="range" min="0.02" max="0.30" step="0.01" value="0.12">
     </div>
-    <div class="row"><b style="color:#9dd7ff">Biome</b></div>
+    <div class="row"><b style="color:#9dd7ff">Biome tuning</b></div>
     <div class="row">
       <label>Rainfall <span id="rainVal"></span></label>
-      <input id="rain" type="range" min="0.1" max="1.4" step="0.05" value="0.8">
+      <input id="rain" type="range" min="0.1" max="1.4" step="0.05" value="0.9">
       <label>Sunlight <span id="sunVal"></span></label>
-      <input id="sun" type="range" min="0.1" max="1.5" step="0.05" value="1.0">
+      <input id="sun" type="range" min="0.1" max="1.5" step="0.05" value="1.1">
       <label>Seasonal swing <span id="swingVal"></span></label>
-      <input id="swing" type="range" min="0.0" max="1.0" step="0.05" value="0.4">
+      <input id="swing" type="range" min="0.0" max="1.0" step="0.05" value="0.45">
     </div>
     <div class="row"><b style="color:#9dd7ff">Populations</b></div>
     <div class="row">
       <label>Start herbivores <span id="herbVal"></span></label>
-      <input id="herb" type="range" min="10" max="200" step="5" value="120">
+      <input id="herb" type="range" min="20" max="220" step="5" value="150">
       <label>Start predators <span id="predVal"></span></label>
-      <input id="pred" type="range" min="2" max="90" step="2" value="28">
+      <input id="pred" type="range" min="5" max="90" step="2" value="30">
       <label>Energy drain (all) <span id="drainVal"></span></label>
-      <input id="drain" type="range" min="0.1" max="2.5" step="0.05" value="0.9">
+      <input id="drain" type="range" min="0.1" max="2.5" step="0.05" value="0.85">
     </div>
     <div class="row"><b style="color:#9dd7ff">Display</b></div>
     <div class="row toggle-grid">
-      <label><input id="showHeat" type="checkbox" checked> Plant glows</label>
-      <label><input id="showTrails" type="checkbox" checked> Animal trails</label>
-      <label><input id="showSignals" type="checkbox" checked> Signals (events)</label>
-      <label><input id="showContours" type="checkbox" checked> Territories</label>
+      <label><input id="showHeat" type="checkbox" checked> Blooming plants</label>
+      <label><input id="showTrails" type="checkbox" checked> Vortex trails</label>
+      <label><input id="showSignals" type="checkbox" checked> Command pings</label>
+      <label><input id="showContours" type="checkbox" checked> Territory ribbons</label>
     </div>
     <div id="hud" class="row">
       <span>⏱️ Time</span><b id="tOut">0.00</b>
@@ -71,7 +74,7 @@
       <div>Event log</div>
       <div id="log"></div>
     </div>
-    <div class="row" style="font-size:11px; color:#7ea0b5;">Phases: climate → grow → sense → act → decay → render → scripts. Scripts inject seasonal shocks and territory beacons.</div>
+    <div class="row" style="font-size:11px; color:#7ea0b5;">Phases: climate → grow → spread → sense → act → decay → render → scripts. Scripts inject seasonal shocks and rally pings.</div>
   </div>
   <canvas id="cv"></canvas>
 </div>
@@ -81,21 +84,20 @@ import {
   defineComponent,
   defineTag,
   defineArchetype,
-  createFrom,
   PHASE_SCRIPTS,
   createRealtimeRafLoop,
 } from '../index.js';
 
-const DEFAULT_SEED = 0xFEEDBEEF >>> 0;
+const DEFAULT_SEED = 0xF00DF11D >>> 0;
 
 // ---------- Components ----------
-const Biome = defineComponent('Biome', { cols: 64, rows: 42, rainfall: 0.8, sunlight: 1.0, swing: 0.4 });
+const Biome = defineComponent('Biome', { cols: 96, rows: 60, rainfall: 0.9, sunlight: 1.1, swing: 0.45 });
 const Field = defineComponent('Field', { plants: null, carrion: null, scent: null });
-const Season = defineComponent('Season', { t: 0, temp: 0, rainPulse: 1, drought: 0, flare: 0, cols: 64, rows: 42 });
+const Season = defineComponent('Season', { t: 0, temp: 0, rainPulse: 1, drought: 0, flare: 0, cols: 96, rows: 60 });
 const Position = defineComponent('Position', { x: 0, y: 0 });
 const Velocity = defineComponent('Velocity', { dx: 0, dy: 0 });
-const Herbivore = defineComponent('Herbivore', { energy: 32, gestate: 0, lastMeal: 0 });
-const Predator = defineComponent('Predator', { energy: 46, hunger: 0, target: -1 });
+const Herbivore = defineComponent('Herbivore', { energy: 32, gestate: 0, lastMeal: 0, heading: 0 });
+const Predator = defineComponent('Predator', { energy: 46, hunger: 0, target: -1, heading: 0 });
 const Trail = defineComponent('Trail', { ttl: 12, hue: 180 });
 const Signal = defineComponent('Signal', { ttl: 3, label: 'shock', strength: 1 });
 const Metrics = defineComponent('Metrics', { plants: 0, herb: 0, pred: 0, events: 0 });
@@ -115,7 +117,7 @@ const EMOJI = {
   spark: ['✨','💫','❇️','🌟'],
 };
 
-const SKY_EMOJI = Array.from({ length: 36 }, () => ({
+const SKY_EMOJI = Array.from({ length: 42 }, () => ({
   x: Math.random(),
   y: Math.random(),
   glyph: EMOJI.spark[(Math.random() * EMOJI.spark.length) | 0],
@@ -123,10 +125,10 @@ const SKY_EMOJI = Array.from({ length: 36 }, () => ({
 }));
 
 const COLORS = {
-  skyTop: '#081228',
-  skyBottom: '#050912',
-  herb: '#74ffcf',
-  pred: '#ff8c7a',
+  skyTop: '#071225',
+  skyBottom: '#050910',
+  herb: '#7bffd9',
+  pred: '#ff9b82',
   plant: '#6ad96b',
   carrion: '#d9b36a',
 };
@@ -172,7 +174,7 @@ syncLabels();
 
 const CV = (()=>{ const cv = document.getElementById('cv'); const ctx = cv.getContext('2d'); function fit(){ const dpr = window.devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); } window.addEventListener('resize', fit); fit(); return { cv, ctx }; })();
 
-const idx = (x,y,cols,rows)=>(( (y+rows)%rows)*cols + ((x+cols)%cols));
+const idx = (x,y,cols,rows)=>(((Math.floor(y+rows)%rows)*cols) + ((Math.floor(x+cols)%cols)));
 const pick = (arr, rand=Math.random)=>arr[(rand()*arr.length)|0];
 
 function log(msg){ const time = new Date().toLocaleTimeString(); UI.log.textContent = `[${time}] ${msg}\n` + UI.log.textContent.slice(0, 2400); }
@@ -208,16 +210,17 @@ const Hunter = defineArchetype('Hunter', Critter, [Trail, { ttl: 8, hue: 10 }]);
 
 function seedField(cols, rows, rainfall, sunlight, rand){
   const n = cols*rows; const plants = new Float32Array(n); const carrion = new Float32Array(n); const scent = new Float32Array(n);
-  for(let i=0;i<n;i++) plants[i] = (0.8 + 0.4*rand()) * 14 * rainfall * sunlight;
+  for(let i=0;i<n;i++) plants[i] = (0.75 + 0.4*rand()) * 14 * rainfall * sunlight;
   return { plants, carrion, scent };
 }
 
 function buildWorld(){
   world = World.create({ seed: DEFAULT_SEED, store: 'map', debug: true })
-    .withPhases('climate','grow','sense','act','decay','render', PHASE_SCRIPTS)
+    .withPhases('climate','grow','spread','sense','act','decay','render', PHASE_SCRIPTS)
     .useScripts({ phase: PHASE_SCRIPTS })
     .system(climateSystem, 'climate')
     .system(growSystem, 'grow')
+    .system(spreadSystem, 'spread')
     .system(senseSystem, 'sense')
     .system(actSystem, 'act')
     .system(decaySystem, 'decay')
@@ -236,20 +239,20 @@ function buildWorld(){
           const sid = world.create();
           world.add(sid, Signal, { ttl:6, label:'drought', strength:1.2 });
           world.add(sid, Beacon);
-          world.add(sid, Position, { x:(world.rand()*season.cols)|0, y:(world.rand()*season.rows)|0 });
+          world.add(sid, Position, { x:(world.rand()*season.cols), y:(world.rand()*season.rows) });
         }
         if (season.flare <= 0 && world.rand() < 0.0012 * dt) {
           season.flare = 5 + world.rand()*8; world.emit('shock', { msg: `${EMOJI.flare} Solar flare — predators sluggish` });
           const sid = world.create();
           world.add(sid, Signal, { ttl:4, label:'flare', strength:1.4 });
-          world.add(sid, Position, { x:(world.rand()*season.cols)|0, y:(world.rand()*season.rows)|0 });
+          world.add(sid, Position, { x:(world.rand()*season.cols), y:(world.rand()*season.rows) });
         }
       }
     });
   });
 
   const biome = world.create();
-  const cols = 64, rows = 42;
+  const cols = 96, rows = 60;
   world.add(biome, Biome, { cols, rows, rainfall: +UI.rain.value, sunlight: +UI.sun.value, swing: +UI.swing.value });
   const { plants, carrion, scent } = seedField(cols, rows, +UI.rain.value, +UI.sun.value, world.rand);
   world.add(biome, Field, { plants, carrion, scent });
@@ -270,12 +273,12 @@ function spawnHerb(){
   const id = world.create();
   world.add(id, Position, pos);
   world.add(id, Velocity, { dx:0, dy:0 });
-  world.add(id, Herbivore, { energy:32, gestate:0, lastMeal:0 });
-  world.add(id, Trail, { ttl: 8, hue: 120 + 40*world.rand() });
+  world.add(id, Herbivore, { energy:32, gestate:0, lastMeal:0, heading: world.rand()*Math.PI*2 });
+  world.add(id, Trail, { ttl: 10, hue: 120 + 40*world.rand() });
   world.emit('spawn', { msg:`${pick(EMOJI.herb, world.rand)} Herbivore deployed` });
   adjustPopCounts(1, 0);
   const beacon = world.create();
-  world.add(beacon, SpawnBeacon, { ttl: 1.5, hue: 110 });
+  world.add(beacon, SpawnBeacon, { ttl: 1.6, hue: 110 });
   world.add(beacon, Position, pos);
   return id;
 }
@@ -286,12 +289,12 @@ function spawnPred(){
   const id = world.create();
   world.add(id, Position, pos);
   world.add(id, Velocity, { dx:0, dy:0 });
-  world.add(id, Predator, { energy:46, hunger:0, target:-1 });
-  world.add(id, Trail, { ttl: 8, hue: 12 });
+  world.add(id, Predator, { energy:46, hunger:0, target:-1, heading: world.rand()*Math.PI*2 });
+  world.add(id, Trail, { ttl: 10, hue: 12 });
   world.emit('spawn', { msg:`${pick(EMOJI.pred, world.rand)} Predator deployed` });
   adjustPopCounts(0, 1);
   const beacon = world.create();
-  world.add(beacon, SpawnBeacon, { ttl: 1.5, hue: 20 });
+  world.add(beacon, SpawnBeacon, { ttl: 1.6, hue: 20 });
   world.add(beacon, Position, pos);
   return id;
 }
@@ -300,10 +303,10 @@ function spawnPred(){
 function climateSystem(world, dt){
   for(const [id, biome, field, season] of world.query(Biome, Field, Season)){
     season.t += dt;
-    const seasonal = 0.5 + 0.5 * Math.sin(season.t * 0.15);
+    const seasonal = 0.5 + 0.5 * Math.sin(season.t * 0.14);
     season.temp = biome.sunlight * (1 + biome.swing * (seasonal - 0.5));
     season.rainPulse = biome.rainfall * (1 + biome.swing * (0.5 - seasonal));
-    if (season.drought > 0) season.rainPulse *= 0.35, season.drought -= dt;
+    if (season.drought > 0) season.rainPulse *= 0.32, season.drought -= dt;
     if (season.flare > 0) season.temp *= 0.4, season.flare -= dt;
   }
 }
@@ -313,10 +316,10 @@ function growSystem(world, dt){
     const { cols, rows } = biome; const N = cols*rows; const drain = +UI.drain.value;
     let totalPlants = 0;
     for(let i=0;i<N;i++){
-      const grow = (0.25 + 0.8*season.rainPulse) * (0.5 + 0.5*season.temp);
+      const grow = (0.28 + 0.85*season.rainPulse) * (0.55 + 0.5*season.temp);
       const loss = 0.01 * field.carrion[i];
       field.plants[i] = Math.max(0, field.plants[i] + dt * (grow - drain*0.02) - loss);
-      field.carrion[i] = Math.max(0, field.carrion[i] - dt * 0.5);
+      field.carrion[i] = Math.max(0, field.carrion[i] - dt * 0.45);
       field.scent[i] = Math.max(0, field.scent[i] - dt * 0.6);
       totalPlants += field.plants[i];
     }
@@ -324,8 +327,39 @@ function growSystem(world, dt){
   }
 }
 
-const HERB_SPEED = 5.4;
-const PRED_SPEED = 6.5;
+function spreadSystem(world, dt){
+  const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
+  if(!biome) return;
+  const bursts = Math.floor(260 * dt);
+  for(let b=0;b<bursts;b++){
+    const x = (world.rand()*biome.cols);
+    const y = (world.rand()*biome.rows);
+    const center = sampleFieldAt(field, biome, x, y);
+    if(center.plant > 2.5){
+      const ang = world.rand()*Math.PI*2;
+      const dist = 1 + world.rand()*3.5;
+      const nx = x + Math.cos(ang)*dist;
+      const ny = y + Math.sin(ang)*dist;
+      const nb = sampleFieldAt(field, biome, nx, ny);
+      const transfer = Math.min(center.plant*0.04, 1.6);
+      field.plants[center.i] = Math.max(0, field.plants[center.i] - transfer*0.6);
+      field.plants[nb.i] = Math.min(field.plants[nb.i] + transfer, 120);
+    }
+    if(center.carr > 1.2){
+      const ang = world.rand()*Math.PI*2;
+      const dist = 0.5 + world.rand()*2.5;
+      const nx = x + Math.cos(ang)*dist;
+      const ny = y + Math.sin(ang)*dist;
+      const nb = sampleFieldAt(field, biome, nx, ny);
+      const bleed = Math.min(center.carr*0.08, 1.8);
+      field.carrion[center.i] = Math.max(0, field.carrion[center.i] - bleed*0.5);
+      field.carrion[nb.i] = Math.min(field.carrion[nb.i] + bleed, 90);
+    }
+  }
+}
+
+const HERB_SPEED = 5.6;
+const PRED_SPEED = 6.8;
 
 function sampleFieldAt(field, biome, x, y){
   const { cols, rows } = biome;
@@ -343,26 +377,28 @@ function wrapPos(pos, biome){
 function senseSystem(world, dt){
   const [bid, biome, field] = world.query(Biome, Field)[Symbol.iterator]().next().value || [];
   if(!biome) return;
-  const predators = [...world.query(Position, Predator)].map(([,p])=>p);
-  const herbs = [...world.query(Position, Herbivore)].map(([,p])=>p);
+  const predators = [...world.query(Position, Predator)].map(([id,pos])=>({ id, pos: { ...pos } }));
+  const herbs = [...world.query(Position, Herbivore)].map(([id,pos])=>({ id, pos: { ...pos } }));
 
   for(const [id, herb] of world.query(Herbivore)){
     const pos = world.get(id, Position);
     let bestScore = -1e9; let dir = [Math.cos(world.rand()*Math.PI*2), Math.sin(world.rand()*Math.PI*2)];
-    for(let k=0;k<10;k++){
-      const ang = (k/10)*Math.PI*2 + world.rand()*0.2;
-      const rx = pos.x + Math.cos(ang)*4.5;
-      const ry = pos.y + Math.sin(ang)*4.5;
+    for(let k=0;k<12;k++){
+      const ang = (k/12)*Math.PI*2 + world.rand()*0.25;
+      const rx = pos.x + Math.cos(ang)*4.6;
+      const ry = pos.y + Math.sin(ang)*4.6;
       const s = sampleFieldAt(field, biome, rx, ry);
       let fear = 0;
-      for(const p of predators){ const dx=p.x-pos.x, dy=p.y-pos.y; const d2=dx*dx+dy*dy; if(d2<36) fear += (36-d2)*0.12; }
-      const score = s.plant*0.8 - s.carr*0.35 + s.scent*0.12 - fear + world.rand()*0.6;
+      for(const p of predators){ const dx=p.pos.x-pos.x, dy=p.pos.y-pos.y; const d2=dx*dx+dy*dy; if(d2<49) fear += (49-d2)*0.12; }
+      const score = s.plant*0.9 - s.carr*0.4 + s.scent*0.14 - fear + world.rand()*0.8;
       if(score > bestScore){ bestScore = score; dir = [Math.cos(ang), Math.sin(ang)]; }
     }
+    const inertia = 0.45;
     const jitter = (world.rand()-0.5)*0.6;
-    const vx = dir[0] + jitter;
-    const vy = dir[1] + (world.rand()-0.5)*0.6;
+    const vx = dir[0] + jitter + world.get(id, Velocity).dx*inertia;
+    const vy = dir[1] + (world.rand()-0.5)*0.6 + world.get(id, Velocity).dy*inertia;
     const mag = Math.max(0.01, Math.hypot(vx, vy));
+    world.set(id, Herbivore, { ...herb, heading: Math.atan2(vy, vx) });
     world.set(id, Velocity, { dx: (vx/mag)*HERB_SPEED, dy: (vy/mag)*HERB_SPEED });
   }
 
@@ -370,24 +406,30 @@ function senseSystem(world, dt){
     const pos = world.get(id, Position);
     let closest = null, d2min = 1e9;
     for(const hp of herbs){
-      const dx = hp.x - pos.x, dy = hp.y - pos.y; const d2 = dx*dx + dy*dy;
+      const dx = hp.pos.x - pos.x, dy = hp.pos.y - pos.y; const d2 = dx*dx + dy*dy;
       if(d2 < d2min){ d2min = d2; closest = hp; }
     }
     let dir;
     if(closest){
-      dir = [closest.x - pos.x, closest.y - pos.y];
+      dir = [closest.pos.x - pos.x, closest.pos.y - pos.y];
+      world.mutate(id, Predator, p => { p.target = closest.id; });
     } else {
       let best=[Math.cos(world.rand()*Math.PI*2), Math.sin(world.rand()*Math.PI*2)]; let bestScore=-1e9;
-      for(let k=0;k<8;k++){
-        const ang = (k/8)*Math.PI*2 + world.rand()*0.3; const rx=pos.x+Math.cos(ang)*5; const ry=pos.y+Math.sin(ang)*5;
+      for(let k=0;k<10;k++){
+        const ang = (k/10)*Math.PI*2 + world.rand()*0.3; const rx=pos.x+Math.cos(ang)*5.5; const ry=pos.y+Math.sin(ang)*5.5;
         const s = sampleFieldAt(field, biome, rx, ry);
-        const score = s.scent*0.8 + s.carr*0.5 + world.rand()*0.3;
+        const score = s.scent*0.85 + s.carr*0.55 + world.rand()*0.35;
         if(score>bestScore){ bestScore=score; best=[Math.cos(ang), Math.sin(ang)]; }
       }
       dir = best;
+      world.mutate(id, Predator, p => { p.target = -1; });
     }
-    const mag = Math.max(0.01, Math.hypot(dir[0], dir[1]));
-    world.set(id, Velocity, { dx: (dir[0]/mag)*PRED_SPEED, dy: (dir[1]/mag)*PRED_SPEED });
+    const inertia = 0.35;
+    const vx = dir[0] + world.get(id, Velocity).dx*inertia;
+    const vy = dir[1] + world.get(id, Velocity).dy*inertia;
+    const mag = Math.max(0.01, Math.hypot(vx, vy));
+    world.set(id, Predator, { ...pred, heading: Math.atan2(vy, vx) });
+    world.set(id, Velocity, { dx: (vx/mag)*PRED_SPEED, dy: (vy/mag)*PRED_SPEED });
   }
 }
 
@@ -405,8 +447,8 @@ function actSystem(world, dt){
     if(!biome2) continue; const sample = sampleFieldAt(field, biome2, pos.x, pos.y);
     const bite = Math.min(sample.plant, 2.5);
     field.plants[sample.i]-=bite; field.scent[sample.i]+=0.5;
-    world.set(id, Herbivore, { ...herb, energy: herb.energy + bite*0.7, lastMeal: 0, gestate: herb.gestate + dt*bite*0.3 });
-    world.set(id, Trail, { ttl: 12, hue: 120 + 60*Math.random() });
+    world.set(id, Herbivore, { ...herb, energy: herb.energy + bite*0.7, lastMeal: 0, gestate: herb.gestate + dt*bite*0.35 });
+    world.set(id, Trail, { ttl: 14, hue: 120 + 60*Math.random() });
     if(herb.energy > 64 && herb.gestate > 6){ world.set(id, Herbivore, { ...herb, energy: herb.energy*0.5, gestate:0, lastMeal:0 }); spawnHerb(); }
   }
   for(const [id, pos, pred] of world.query(Position, Predator)){
@@ -419,7 +461,7 @@ function actSystem(world, dt){
     const gain = ate? 8 : 0;
     world.set(id, Predator, { ...pred, energy: pred.energy + gain, hunger: pred.hunger + dt*(ate? -2:1) });
     field.scent[sample.i]+=1.2;
-    world.set(id, Trail, { ttl: 12, hue: 12 });
+    world.set(id, Trail, { ttl: 14, hue: 12 });
     if(pred.energy>90){ world.set(id, Predator, { ...pred, energy: pred.energy*0.6, hunger:0 }); spawnPred(); }
   }
   for(const [id, sig] of world.query(Signal)){
@@ -466,19 +508,19 @@ function decaySystem(world, dt){
 function balanceSystem(world, _dt){
   const herbCount = [...world.query(Herbivore)].length;
   const predCount = [...world.query(Predator)].length;
-  const targetHerb = Math.max(10, Math.floor(+UI.herb.value * 0.4));
-  const targetPred = Math.max(4, Math.floor(+UI.pred.value * 0.35));
+  const targetHerb = Math.max(12, Math.floor(+UI.herb.value * 0.45));
+  const targetPred = Math.max(6, Math.floor(+UI.pred.value * 0.4));
   const [mid, metrics] = world.query(Metrics)[Symbol.iterator]().next().value || [];
   if(metrics){
     world.set(mid, Metrics, { ...metrics, herb: herbCount, pred: predCount });
   }
 
   if(world.time > 0.5 && herbCount < targetHerb){
-    const missing = Math.min(targetHerb - herbCount, 12);
+    const missing = Math.min(targetHerb - herbCount, 14);
     for(let i=0;i<missing;i++) spawnHerb();
   }
   if(world.time > 0.5 && predCount < targetPred && herbCount > targetHerb*0.5){
-    const missing = Math.min(targetPred - predCount, 6);
+    const missing = Math.min(targetPred - predCount, 7);
     for(let i=0;i<missing;i++) spawnPred();
   }
 }
@@ -492,14 +534,15 @@ function renderSystem(world, _dt, statsView){
   sky.addColorStop(0, COLORS.skyTop); sky.addColorStop(1, COLORS.skyBottom);
   ctx.fillStyle = sky; ctx.fillRect(0,0,cv.width,cv.height);
 
-  // Aurora ribbons
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   const aurora = ctx.createLinearGradient(0,0,cv.width,cv.height);
-  aurora.addColorStop(0, 'rgba(80,180,255,0.12)');
-  aurora.addColorStop(1, 'rgba(180,120,255,0.14)');
+  aurora.addColorStop(0, 'rgba(90,200,255,0.12)');
+  aurora.addColorStop(1, 'rgba(255,140,200,0.15)');
   ctx.fillStyle = aurora;
-  ctx.beginPath(); ctx.moveTo(0,cv.height*0.25); ctx.quadraticCurveTo(cv.width*0.35, cv.height*0.15, cv.width, cv.height*0.28); ctx.lineTo(cv.width, cv.height*0.45); ctx.quadraticCurveTo(cv.width*0.4, cv.height*0.35, 0, cv.height*0.5); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,cv.height*0.2); ctx.quadraticCurveTo(cv.width*0.3, cv.height*0.12, cv.width*0.6, cv.height*0.24);
+  ctx.quadraticCurveTo(cv.width*0.8, cv.height*0.34, cv.width, cv.height*0.2); ctx.lineTo(cv.width, cv.height*0.4);
+  ctx.quadraticCurveTo(cv.width*0.65, cv.height*0.32, cv.width*0.35, cv.height*0.42); ctx.quadraticCurveTo(cv.width*0.12, cv.height*0.52, 0, cv.height*0.35); ctx.closePath(); ctx.fill();
   ctx.restore();
 
   ctx.save();
@@ -512,85 +555,97 @@ function renderSystem(world, _dt, statsView){
   }
   ctx.restore();
 
-  // Biomass nebula: floating blobs for plants + carrion
+  // Biomass spray — random splats instead of grid tiles
   if(UI.showHeat.checked){
     ctx.save();
     ctx.globalCompositeOperation='lighter';
-    for(let y=0;y<biome.rows;y+=2){
-      for(let x=0;x<biome.cols;x+=2){
-        const i = idx(x,y,biome.cols,biome.rows);
-        const plant = field.plants[i];
-        if(plant>1){
-          const px=(x+0.5)*cw, py=(y+0.5)*ch;
-          const r = Math.min(cw,ch) * (0.5 + Math.sqrt(plant)*0.12);
-          const g = ctx.createRadialGradient(px,py,0,px,py,r*1.4);
-          g.addColorStop(0, `rgba(90,255,150,0.28)`);
-          g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r*1.2,0,Math.PI*2); ctx.fill();
-        }
-        const carr = field.carrion[i];
-        if(carr>0.6){
-          const px=(x+0.5)*cw, py=(y+0.5)*ch;
-          const r = Math.min(cw,ch) * (0.35 + Math.sqrt(carr)*0.15);
-          const g = ctx.createRadialGradient(px,py,0,px,py,r*1.6);
-          g.addColorStop(0, 'rgba(255,190,130,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fill();
-        }
+    for(let i=0;i<360;i++){
+      const x = world.rand()*biome.cols; const y = world.rand()*biome.rows;
+      const s = sampleFieldAt(field, biome, x, y);
+      if(s.plant>2){
+        const px=(x+0.4*world.rand())*cw, py=(y+0.4*world.rand())*ch;
+        const r = Math.min(cw,ch) * (0.5 + Math.sqrt(s.plant)*0.08);
+        const g = ctx.createRadialGradient(px,py,0,px,py,r*1.8);
+        g.addColorStop(0, 'rgba(90,255,180,0.45)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fill();
+      }
+      if(s.carr>0.4 && world.rand()>0.55){
+        const px=(x+0.4*world.rand())*cw, py=(y+0.4*world.rand())*ch;
+        const r = Math.min(cw,ch) * (0.35 + Math.sqrt(s.carr)*0.09);
+        const g = ctx.createRadialGradient(px,py,0,px,py,r*1.6);
+        g.addColorStop(0, 'rgba(255,200,140,0.38)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fill();
       }
     }
     ctx.restore();
-    // sprinkle visible sprites for biomass
     ctx.save();
-    ctx.font = `${Math.min(cw,ch)*0.85}px "Apple Color Emoji","Noto Color Emoji"`;
-    for(let y=0;y<biome.rows;y+=3){
-      for(let x=0;x<biome.cols;x+=3){
-        const i = idx(x,y,biome.cols,biome.rows);
-        const plant = field.plants[i];
-        const carr = field.carrion[i];
-        if(plant>5 && world.rand()>0.45){ ctx.fillText(EMOJI.plant, x*cw, y*ch); }
-        if(carr>2.5 && world.rand()>0.65){ ctx.fillText(EMOJI.carrion, x*cw, y*ch); }
-      }
+    ctx.font = `${Math.min(cw,ch)*0.9}px "Apple Color Emoji","Noto Color Emoji"`;
+    for(let i=0;i<120;i++){
+      const x = world.rand()*biome.cols; const y = world.rand()*biome.rows;
+      const s = sampleFieldAt(field, biome, x, y);
+      if(s.plant>6 && world.rand()>0.35) ctx.fillText(EMOJI.plant, x*cw, y*ch);
+      if(s.carr>2.5 && world.rand()>0.65) ctx.fillText(EMOJI.carrion, x*cw, y*ch);
     }
     ctx.restore();
   }
+
   if(UI.showContours.checked){
-    ctx.strokeStyle = 'rgba(90,140,255,0.16)'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.ellipse(cv.width*0.5, cv.height*0.45, cv.width*0.44, cv.height*0.28, 0, 0, Math.PI*2); ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(cv.width*0.4, cv.height*0.65, cv.width*0.36, cv.height*0.2, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(120,180,255,0.18)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.ellipse(cv.width*0.52, cv.height*0.48, cv.width*0.46, cv.height*0.26, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cv.width*0.35, cv.height*0.65, cv.width*0.35, cv.height*0.2, 0, 0, Math.PI*2); ctx.stroke();
   }
+
   // Signals and rally beacons
   for(const [id, pos, sig] of world.query(Position, Signal)){
     const r = (2+sig.ttl*4); const hue = sig.label==='drought'?28:300; const glyph = sig.label==='drought'?EMOJI.drought:EMOJI.flare;
-    const grad = ctx.createRadialGradient((pos.x+0.5)*cw,(pos.y+0.5)*ch,2,(pos.x+0.5)*cw,(pos.y+0.5)*ch,r*4);
-    grad.addColorStop(0, `hsla(${hue},90%,70%,0.5)`); grad.addColorStop(1, 'rgba(0,0,0,0)');
+    const grad = ctx.createRadialGradient((pos.x+0.5)*cw,(pos.y+0.5)*ch,2,(pos.x+0.5)*cw,(pos.y+0.5)*ch,r*5);
+    grad.addColorStop(0, `hsla(${hue},90%,70%,0.55)`); grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad; ctx.fillRect((pos.x-3)*cw, (pos.y-3)*ch, cw*7, ch*7);
-    ctx.strokeStyle = `hsla(${hue},100%,70%,0.8)`; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc((pos.x+0.5)*cw,(pos.y+0.5)*ch,r,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = `hsla(${hue},100%,70%,0.85)`; ctx.lineWidth=1.6; ctx.beginPath(); ctx.arc((pos.x+0.5)*cw,(pos.y+0.5)*ch,r,0,Math.PI*2); ctx.stroke();
     ctx.font = `${Math.min(cw,ch)*1.1}px "Apple Color Emoji","Noto Color Emoji"`; ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.fillText(glyph,(pos.x+0.08)*cw,(pos.y+0.9)*ch);
   }
   for(const [id, pos, beacon] of world.query(Position, SpawnBeacon)){
     const alpha = Math.max(0, beacon.ttl/2);
     ctx.strokeStyle = `hsla(${beacon.hue},95%,65%,${0.8*alpha})`;
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc((pos.x+0.5)*cw,(pos.y+0.5)*ch, cw*0.55, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc((pos.x+0.5)*cw,(pos.y+0.5)*ch, cw*0.65, 0, Math.PI*2); ctx.stroke();
   }
+
   // Trails and command arrows
   if(UI.showTrails.checked){
+    ctx.lineWidth = 2.5;
     for(const [id, pos, trail] of world.query(Position, Trail)){
-      const r = Math.min(cw,ch)*0.55;
-      ctx.fillStyle = `hsla(${trail.hue},90%,70%,${Math.max(0, trail.ttl/12)})`;
-      ctx.shadowColor = `hsla(${trail.hue},100%,70%,0.55)`; ctx.shadowBlur = 12;
-      ctx.beginPath(); ctx.arc((pos.x+0.2)*cw, (pos.y+0.2)*ch, r, 0, Math.PI*2); ctx.fill();
+      const r = Math.min(cw,ch)*0.6;
+      ctx.strokeStyle = `hsla(${trail.hue},90%,70%,${Math.max(0, trail.ttl/14)})`;
+      ctx.shadowColor = `hsla(${trail.hue},100%,70%,0.55)`; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.arc((pos.x+0.2)*cw, (pos.y+0.2)*ch, r, 0, Math.PI*2); ctx.stroke();
     }
     ctx.shadowBlur = 0; ctx.shadowColor='transparent';
   }
+
+  // Command lines to closest prey
+  ctx.save();
+  ctx.globalAlpha = 0.6;
+  ctx.strokeStyle = 'rgba(255,140,120,0.55)';
+  ctx.lineWidth = 1.5;
+  const herbPositions = new Map();
+  for(const [hid, pos] of world.query(Position, Herbivore)) herbPositions.set(hid, pos);
+  for(const [pid, pos, pred] of world.query(Position, Predator)){
+    if(pred.target !== -1 && herbPositions.has(pred.target)){
+      const hpos = herbPositions.get(pred.target);
+      ctx.beginPath(); ctx.moveTo(pos.x*cw, pos.y*ch); ctx.lineTo(hpos.x*cw, hpos.y*ch); ctx.stroke();
+    }
+  }
+  ctx.restore();
+
   // Units (emoji + bounding circles)
   ctx.font = `${Math.min(cw,ch)*0.95}px "Apple Color Emoji","Noto Color Emoji"`;
   for(const [id, pos, herb] of world.query(Position, Herbivore)){
     const energy = Math.max(0, Math.min(1, herb.energy/64));
-    const r = Math.min(cw,ch)*0.58;
+    const r = Math.min(cw,ch)*0.62;
     const px = pos.x*cw, py = pos.y*ch;
     ctx.save();
-    ctx.shadowColor='rgba(120,255,180,0.5)'; ctx.shadowBlur=18;
+    ctx.shadowColor='rgba(120,255,200,0.6)'; ctx.shadowBlur=18;
     ctx.strokeStyle=`rgba(100,255,200,${0.5+0.4*energy})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(px, py, r*0.9, 0, Math.PI*2); ctx.stroke();
     ctx.strokeStyle=`rgba(0,0,0,0.7)`; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(px, py, r*0.7, -Math.PI/2, -Math.PI/2 + Math.PI*2*energy); ctx.stroke();
     ctx.fillStyle='rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.arc(px, py, r*0.65, 0, Math.PI*2); ctx.fill();
@@ -599,10 +654,10 @@ function renderSystem(world, _dt, statsView){
   }
   for(const [id, pos, pred] of world.query(Position, Predator)){
     const energy = Math.max(0, Math.min(1, pred.energy/90));
-    const r = Math.min(cw,ch)*0.6;
+    const r = Math.min(cw,ch)*0.64;
     const px = pos.x*cw, py = pos.y*ch;
     ctx.save();
-    ctx.shadowColor='rgba(255,120,120,0.65)'; ctx.shadowBlur=18;
+    ctx.shadowColor='rgba(255,140,120,0.7)'; ctx.shadowBlur=18;
     ctx.strokeStyle=`rgba(255,140,120,${0.55+0.35*energy})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2); ctx.stroke();
     ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.lineWidth=7; ctx.beginPath(); ctx.arc(px, py, r*0.74, -Math.PI/2, -Math.PI/2 + Math.PI*2*energy); ctx.stroke();
     ctx.fillStyle='rgba(0,0,0,0.38)'; ctx.beginPath(); ctx.arc(px, py, r*0.7, 0, Math.PI*2); ctx.fill();
