@@ -653,31 +653,39 @@ function renderSystem(world, _dt, statsView){
   }
   ctx.restore();
 
-  // Units (emoji + bounding circles)
+  // Units (emoji-forward, minimal halo for perf)
   ctx.font = `${Math.min(cw,ch)*0.95}px "Apple Color Emoji","Noto Color Emoji"`;
   for(const [id, pos, herb] of world.query(Position, Herbivore)){
     const energy = Math.max(0, Math.min(1, herb.energy/64));
-    const r = Math.min(cw,ch)*0.62;
+    const r = Math.min(cw,ch)*0.55;
     const px = pos.x*cw, py = pos.y*ch;
+    const glyph = EMOJI.herb[id % EMOJI.herb.length];
     ctx.save();
-    ctx.shadowColor='rgba(120,255,200,0.6)'; ctx.shadowBlur=18;
-    ctx.strokeStyle=`rgba(100,255,200,${0.5+0.4*energy})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(px, py, r*0.9, 0, Math.PI*2); ctx.stroke();
-    ctx.strokeStyle=`rgba(0,0,0,0.7)`; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(px, py, r*0.7, -Math.PI/2, -Math.PI/2 + Math.PI*2*energy); ctx.stroke();
-    ctx.fillStyle='rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.arc(px, py, r*0.65, 0, Math.PI*2); ctx.fill();
-    ctx.fillText(EMOJI.herb[id % EMOJI.herb.length], px - r*0.4, py + r*0.4);
+    ctx.shadowColor='rgba(120,255,200,0.35)'; ctx.shadowBlur=8;
+    ctx.fillText(glyph, px - r*0.4, py + r*0.4);
     ctx.restore();
+
+    const barW = Math.min(cw,ch)*0.9, barH = Math.min(cw,ch)*0.16;
+    ctx.strokeStyle='rgba(10,30,35,0.5)'; ctx.lineWidth=barH; ctx.beginPath();
+    ctx.moveTo(px - barW/2, py + r*0.6); ctx.lineTo(px + barW/2, py + r*0.6); ctx.stroke();
+    ctx.strokeStyle='rgba(100,255,200,0.9)'; ctx.lineWidth=barH*0.9; ctx.beginPath();
+    ctx.moveTo(px - barW/2, py + r*0.6); ctx.lineTo(px - barW/2 + barW*energy, py + r*0.6); ctx.stroke();
   }
   for(const [id, pos, pred] of world.query(Position, Predator)){
     const energy = Math.max(0, Math.min(1, pred.energy/90));
-    const r = Math.min(cw,ch)*0.64;
+    const r = Math.min(cw,ch)*0.56;
     const px = pos.x*cw, py = pos.y*ch;
+    const glyph = EMOJI.pred[id % EMOJI.pred.length];
     ctx.save();
-    ctx.shadowColor='rgba(255,140,120,0.7)'; ctx.shadowBlur=18;
-    ctx.strokeStyle=`rgba(255,140,120,${0.55+0.35*energy})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2); ctx.stroke();
-    ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.lineWidth=7; ctx.beginPath(); ctx.arc(px, py, r*0.74, -Math.PI/2, -Math.PI/2 + Math.PI*2*energy); ctx.stroke();
-    ctx.fillStyle='rgba(0,0,0,0.38)'; ctx.beginPath(); ctx.arc(px, py, r*0.7, 0, Math.PI*2); ctx.fill();
-    ctx.fillText(EMOJI.pred[id % EMOJI.pred.length], px - r*0.42, py + r*0.25);
+    ctx.shadowColor='rgba(255,140,120,0.4)'; ctx.shadowBlur=8;
+    ctx.fillText(glyph, px - r*0.42, py + r*0.32);
     ctx.restore();
+
+    const barW = Math.min(cw,ch)*0.95, barH = Math.min(cw,ch)*0.18;
+    ctx.strokeStyle='rgba(30,10,10,0.5)'; ctx.lineWidth=barH; ctx.beginPath();
+    ctx.moveTo(px - barW/2, py + r*0.55); ctx.lineTo(px + barW/2, py + r*0.55); ctx.stroke();
+    ctx.strokeStyle='rgba(255,140,120,0.95)'; ctx.lineWidth=barH*0.9; ctx.beginPath();
+    ctx.moveTo(px - barW/2, py + r*0.55); ctx.lineTo(px - barW/2 + barW*energy, py + r*0.55); ctx.stroke();
   }
 
   UI.out.t.textContent = world.time.toFixed(2);
