@@ -92,7 +92,7 @@ const DEFAULT_SEED = 0xF00DF11D >>> 0;
 
 // ---------- Components ----------
 const Biome = defineComponent('Biome', { cols: 96, rows: 60, rainfall: 0.9, sunlight: 1.1, swing: 0.45 });
-const Field = defineComponent('Field', { plants: null, carrion: null, scent: null });
+const Field = defineComponent('Field', { plants: null, carrion: null, scent: null, fertility: null });
 const Season = defineComponent('Season', { t: 0, temp: 0, rainPulse: 1, drought: 0, flare: 0, cols: 96, rows: 60 });
 const Position = defineComponent('Position', { x: 0, y: 0 });
 const Velocity = defineComponent('Velocity', { dx: 0, dy: 0 });
@@ -253,10 +253,50 @@ const Critter = defineArchetype('Critter', [Position, (p)=>({ x:p.x, y:p.y })], 
 const Grazer = defineArchetype('Grazer', Critter, [Trail, { ttl: 8, hue: 110 }]);
 const Hunter = defineArchetype('Hunter', Critter, [Trail, { ttl: 8, hue: 10 }]);
 
+function smoothstep(t){ return t*t*(3-2*t); }
+
+function makeNoise(cols, rows, rand, stride){
+  const gx = Math.ceil(cols/stride)+2; const gy = Math.ceil(rows/stride)+2;
+  const grid = new Float32Array(gx*gy);
+  for(let i=0;i<grid.length;i++) grid[i] = rand();
+  const noise = new Float32Array(cols*rows);
+  for(let y=0;y<rows;y++){
+    for(let x=0;x<cols;x++){
+      const fx = x/stride; const fy = y/stride;
+      const x0 = Math.floor(fx), x1 = x0+1; const y0 = Math.floor(fy), y1 = y0+1;
+      const sx = smoothstep(fx-x0); const sy = smoothstep(fy-y0);
+      const g = (ix,iy)=>grid[(iy%gy)*gx + (ix%gx)];
+      const n00=g(x0,y0), n10=g(x1,y0), n01=g(x0,y1), n11=g(x1,y1);
+      const nx0 = n00 + (n10-n00)*sx;
+      const nx1 = n01 + (n11-n01)*sx;
+      noise[idx(x,y,cols,rows)] = nx0 + (nx1-nx0)*sy;
+    }
+  }
+  return noise;
+}
+
+function makeFertility(cols, rows, rand){
+  const coarse = makeNoise(cols, rows, rand, 18);
+  const fine = makeNoise(cols, rows, rand, 7);
+  const fert = new Float32Array(cols*rows);
+  for(let i=0;i<fert.length;i++){
+    const v = 0.65*coarse[i] + 0.35*fine[i];
+    fert[i] = Math.min(1, Math.max(0, v));
+  }
+  return fert;
+}
+
 function seedField(cols, rows, rainfall, sunlight, rand){
   const n = cols*rows; const plants = new Float32Array(n); const carrion = new Float32Array(n); const scent = new Float32Array(n);
-  for(let i=0;i<n;i++) plants[i] = (0.75 + 0.4*rand()) * 14 * rainfall * sunlight;
-  return { plants, carrion, scent };
+  const fertility = makeFertility(cols, rows, rand);
+  for(let i=0;i<n;i++){
+    const lush = fertility[i];
+    const cap = 7 + lush*18;
+    const bias = 0.35 + 0.45*rand();
+    const cover = lush < 0.2 && rand() < 0.6 ? 0 : 1;
+    plants[i] = cover * cap * bias * rainfall * (0.6 + 0.5*sunlight);
+  }
+  return { plants, carrion, scent, fertility };
 }
 
 function buildWorld(){
@@ -299,8 +339,8 @@ function buildWorld(){
   const biome = world.create();
   const cols = 96, rows = 60;
   world.add(biome, Biome, { cols, rows, rainfall: +UI.rain.value, sunlight: +UI.sun.value, swing: +UI.swing.value });
-  const { plants, carrion, scent } = seedField(cols, rows, +UI.rain.value, +UI.sun.value, world.rand);
-  world.add(biome, Field, { plants, carrion, scent });
+  const { plants, carrion, scent, fertility } = seedField(cols, rows, +UI.rain.value, +UI.sun.value, world.rand);
+  world.add(biome, Field, { plants, carrion, scent, fertility });
   world.add(biome, Season, { t: 0, temp: 0, rainPulse: 1, drought: 0, flare: 0, cols, rows });
   world.add(biome, Metrics, { plants:0, herb:0, pred:0, events:0 });
   world.addScript(biome, 'seasonal-shocks');
@@ -361,9 +401,13 @@ function growSystem(world, dt){
     const { cols, rows } = biome; const N = cols*rows; const drain = +UI.drain.value;
     let totalPlants = 0;
     for(let i=0;i<N;i++){
-      const grow = (0.28 + 0.85*season.rainPulse) * (0.55 + 0.5*season.temp);
-      const loss = 0.01 * field.carrion[i];
-      field.plants[i] = Math.max(0, field.plants[i] + dt * (grow - drain*0.02) - loss);
+      const fert = field.fertility ? field.fertility[i] : 0.5;
+      const capacity = 10 + fert * 22;
+      const grow = (0.12 + 0.5*season.rainPulse + 0.28*season.temp) * (0.5 + fert*0.8);
+      const pressure = Math.max(0, field.plants[i] - capacity);
+      const loss = 0.01 * field.carrion[i] + pressure*0.06;
+      const delta = dt * (grow * (1 - field.plants[i]/Math.max(1, capacity*1.2)) - drain*0.02) - loss;
+      field.plants[i] = Math.max(0, field.plants[i] + delta);
       field.carrion[i] = Math.max(0, field.carrion[i] - dt * 0.45);
       field.scent[i] = Math.max(0, field.scent[i] - dt * 0.6);
       totalPlants += field.plants[i];
@@ -383,6 +427,7 @@ function spreadSystem(world, dt){
       const i = idx(x, y, cols, rows);
       const plant = field.plants[i];
       const carr = field.carrion[i];
+      const fert = field.fertility ? field.fertility[i] : 0.5;
       let denseNeighbors = 0; let plantSum = 0; let carrSum = 0;
       for(let dy=-1; dy<=1; dy++){
         for(let dx=-1; dx<=1; dx++){
@@ -398,13 +443,16 @@ function spreadSystem(world, dt){
       // Conway-esque birth: empty-ish tiles bloom when surrounded by lush neighbors.
       let newPlant = plant;
       const avg = plantSum / 8;
-      if(plant < 1 && denseNeighbors >= 3){
-        newPlant += dt * avg * 0.4;
+      const capacity = 10 + fert*22;
+      if(plant < capacity*0.18 && denseNeighbors >= 3){
+        newPlant += dt * avg * (0.16 + fert*0.32);
       } else {
         // Drift toward neighborhood average to keep clumps cohesive.
-        newPlant += dt * (avg - plant) * 0.2;
+        newPlant += dt * (avg - plant) * (0.12 + fert*0.18);
       }
-      nextPlants[i] = Math.max(0, Math.min(180, newPlant));
+      const damp = Math.max(0, plant - capacity);
+      newPlant = Math.max(0, Math.min(capacity*1.6, newPlant - damp*0.08*dt));
+      nextPlants[i] = newPlant;
 
       // Carrion wafts outward gently.
       const carrDiffusion = (carrSum / 8 - carr) * 0.12 * dt;
@@ -415,8 +463,8 @@ function spreadSystem(world, dt){
   field.carrion.set(nextCarrion);
 }
 
-const HERB_SPEED = 5.6;
-const PRED_SPEED = 6.8;
+const HERB_SPEED = 3.4;
+const PRED_SPEED = 4.1;
 
 function sampleFieldAt(field, biome, x, y){
   const { cols, rows } = biome;
@@ -450,10 +498,10 @@ function senseSystem(world, dt){
       const score = s.plant*0.9 - s.carr*0.4 + s.scent*0.14 - fear + world.rand()*0.8;
       if(score > bestScore){ bestScore = score; dir = [Math.cos(ang), Math.sin(ang)]; }
     }
-    const inertia = 0.45;
-    const jitter = (world.rand()-0.5)*0.6;
+    const inertia = 0.35;
+    const jitter = (world.rand()-0.5)*0.3;
     const vx = dir[0] + jitter + world.get(id, Velocity).dx*inertia;
-    const vy = dir[1] + (world.rand()-0.5)*0.6 + world.get(id, Velocity).dy*inertia;
+    const vy = dir[1] + (world.rand()-0.5)*0.3 + world.get(id, Velocity).dy*inertia;
     const mag = Math.max(0.01, Math.hypot(vx, vy));
     world.set(id, Herbivore, { ...herb, heading: Math.atan2(vy, vx) });
     world.set(id, Velocity, { dx: (vx/mag)*HERB_SPEED, dy: (vy/mag)*HERB_SPEED });
@@ -481,7 +529,7 @@ function senseSystem(world, dt){
       dir = best;
       world.mutate(id, Predator, p => { p.target = -1; });
     }
-    const inertia = 0.35;
+    const inertia = 0.25;
     const vx = dir[0] + world.get(id, Velocity).dx*inertia;
     const vy = dir[1] + world.get(id, Velocity).dy*inertia;
     const mag = Math.max(0.01, Math.hypot(vx, vy));
@@ -494,8 +542,8 @@ function actSystem(world, dt){
   const [bid, biome] = world.query(Biome)[Symbol.iterator]().next().value || [];
   for(const [id, pos, vel] of world.query(Position, Velocity)){
     if(biome){
-      pos.x += vel.dx * dt * 6;
-      pos.y += vel.dy * dt * 6;
+      pos.x += vel.dx * dt * 2.4;
+      pos.y += vel.dy * dt * 2.4;
       wrapPos(pos, biome);
     }
   }
