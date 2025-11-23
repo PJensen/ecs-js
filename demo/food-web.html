@@ -575,26 +575,29 @@ function renderSystem(world, _dt, statsView){
   // Biomass spray — anchor on stable tiles so plants feel planted instead of sparkly noise.
   if(UI.showHeat.checked){
     ctx.save();
-    ctx.globalCompositeOperation='lighter';
-    ctx.font = `${Math.min(cw,ch)*0.9}px "Apple Color Emoji","Noto Color Emoji"`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${Math.min(cw,ch)*0.95}px "Apple Color Emoji","Noto Color Emoji"`;
     for(let y=0;y<biome.rows;y++){
       for(let x=0;x<biome.cols;x++){
         const cell = sampleFieldAt(field, biome, x, y);
-        const wobble = jitter(x, y)*0.35;
-        const px=(x+0.4+wobble)*cw, py=(y+0.4+wobble)*ch;
-        if(cell.plant>0.4){
-          const r = Math.min(cw,ch) * (0.45 + Math.sqrt(cell.plant)*0.06);
-          const g = ctx.createRadialGradient(px,py,0,px,py,r*1.6);
-          g.addColorStop(0, 'rgba(90,255,180,0.4)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fill();
-          if(cell.plant>12) ctx.fillText(EMOJI.plant, px-r*0.35, py+r*0.35);
+        if(cell.plant>0.35){
+          const wobble = jitter(x, y)*0.3;
+          const px=(x+0.5+wobble*0.3)*cw, py=(y+0.5+wobble*0.3)*ch;
+          ctx.save();
+          ctx.shadowColor='rgba(120,255,180,0.45)';
+          ctx.shadowBlur = 10;
+          ctx.fillText(EMOJI.plant, px, py);
+          ctx.restore();
         }
-        if(cell.carr>1.5){
-          const r = Math.min(cw,ch) * (0.4 + Math.sqrt(cell.carr)*0.07);
-          const g = ctx.createRadialGradient(px,py,0,px,py,r*1.4);
-          g.addColorStop(0, 'rgba(255,200,140,0.32)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fill();
-          if(cell.carr>4) ctx.fillText(EMOJI.carrion, px-r*0.28, py+r*0.32);
+        if(cell.carr>2){
+          const wobble = jitter(x*1.7, y*1.3)*0.25;
+          const px=(x+0.55+wobble*0.4)*cw, py=(y+0.55+wobble*0.4)*ch;
+          ctx.save();
+          ctx.shadowColor='rgba(255,210,150,0.35)';
+          ctx.shadowBlur = 8;
+          ctx.fillText(EMOJI.carrion, px, py);
+          ctx.restore();
         }
       }
     }
