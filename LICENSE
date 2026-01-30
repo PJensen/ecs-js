@@ -1,21 +1,110 @@
-MIT License
+Human-Scale Source License
+Version 1.2
 
 Copyright (c) 2025 Pete Jensen
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the “Software”), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software is published openly, but not without boundaries.
+It is intended for human-scale builders, researchers, and independent
+developers, not for institutional extraction or enclosure.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Permission is hereby granted, free of charge, to any individual,
+student, researcher, independent developer, or organization with
+fewer than ten (10) employees and less than one million
+(1,000,000) USD in annual revenue (“Permitted Users”), to use,
+copy, modify, and redistribute this software and its associated
+documentation files (the “Software”), subject to the terms and
+conditions set forth below.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+This license is source-available. It is not an open-source license
+as defined by the Open Source Initiative.
+
+1. Restrictions
+
+1.1 Institutional and Corporate Use
+
+Any company, organization, or entity that does not qualify as a
+Permitted User is not authorized to use, copy, modify, distribute,
+or integrate the Software without first obtaining a separate
+commercial license from the copyright holder.
+
+Unauthorized use includes, but is not limited to, internal tooling,
+dependencies, evaluation, research use, or silent adoption.
+
+1.2 Proprietary and Closed Systems
+
+The Software may not be incorporated into, linked with, or used as
+part of any proprietary, closed-source, paywalled, or access-
+restricted product, platform, or service without a commercial
+license.
+
+Systems that deny users the ability to inspect, audit, or modify
+their operational code are considered closed systems under this
+license.
+
+1.3 Third-Party Machine Learning and Artificial Intelligence Use
+
+Except where unavoidable due to the terms of a public hosting
+platform, the Software, including its source code, structure,
+documentation, or outputs, may not be used to train, fine-tune,
+evaluate, distill, or otherwise improve proprietary or closed-
+source machine learning or artificial intelligence models without
+a commercial license.
+
+This restriction applies solely to activities that modify, enhance,
+or improve the underlying model itself.
+
+Use of the Software by machine learning or artificial intelligence
+systems at inference time — including use by autonomous or semi-
+autonomous coding agents to read, execute, generate, or reason
+about code — is expressly permitted.
+
+For the avoidance of doubt, this restriction does not apply to
+incidental data, logs, traces, telemetry, or other exhaust
+generated as a byproduct of lawful runtime use of the Software by
+machine learning or artificial intelligence systems, where such
+data is captured or processed under the terms of an external
+platform or service.
+
+This license governs deliberate reuse and intentional ingestion
+of the Software itself, not ambient byproducts of execution beyond
+the author’s control.
+
+1.4 Hosted Services and Software-as-a-Service
+
+The Software may not be offered, in whole or in part, as a paid
+hosted service, software-as-a-service (SaaS), managed service, or
+commercial API without a commercial license.
+
+Repackaging, abstraction, partial integration, or orchestration
+does not alter this requirement.
+
+2. Redistribution
+
+Redistributions of the Software, whether modified or unmodified,
+must retain this license and all copyright notices. The Software
+may not be relicensed or redistributed under different terms.
+
+3. Disclaimer of Warranty
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+NON-INFRINGEMENT.
+
+4. Limitation of Liability
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR AUTHOR BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+5. Commercial Licensing
+
+Entities wishing to use the Software outside the scope of this
+license must obtain a commercial license directly from the
+copyright holder.
+
+This license reflects an intent to preserve openness at human
+scale, permit agentic use, and resist silent capture, opaque
+reuse, and unaccountable extraction.
