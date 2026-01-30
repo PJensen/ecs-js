@@ -668,5 +668,5 @@ directly in the browser:
 
 ## ⚖️ License
 
-MIT © 2025 Pete Jensen
+HSSL © 2025 Pete Jensen
 Lightweight, deterministic, and proudly build-free.
