@@ -154,10 +154,9 @@ function _reinsertSameParent(world, child, parent, opts){
 
 /** @private */
 function _bumpIndices(world, parent, startIdx, delta){
-  let i=0;
   for (const c of children(world, parent)){
-    if (i >= startIdx){ const s = world.get(c, Sibling); world.set(c, Sibling, { index: (s.index|0) + delta }); }
-    i++;
+    const s = world.get(c, Sibling);
+    if ((s.index|0) >= startIdx) world.set(c, Sibling, { index: (s.index|0) + delta });
   }
 }
 /** @private */

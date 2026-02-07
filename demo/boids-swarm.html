@@ -1,0 +1,809 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>ecs-js — Boids Swarm</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#04060b; color:#e0f0ff; font:14px/1.4 "Inter", system-ui, -apple-system, sans-serif; }
+  #wrap { display:grid; grid-template-columns:320px 1fr; height:100vh; }
+  #ui { padding:16px; border-right:1px solid #16212f; overflow:auto; background:radial-gradient(circle at 20% 15%, rgba(60,180,255,.14), transparent 40%),
+         radial-gradient(circle at 75% 25%, rgba(255,80,120,.10), transparent 48%),
+         linear-gradient(180deg, #0a101a 0%, #04060b 60%);
+         box-shadow:0 0 50px #08f1 inset; }
+  h1 { margin:0 0 6px; font-size:18px; letter-spacing:-0.01em; text-shadow:0 0 12px #4af5; }
+  p.blurb { margin:0 0 12px; color:#8ba8c4; font-size:13px; }
+  .row { margin:10px 0; }
+  .row label { display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#8ba8c4; margin:3px 0; }
+  input[type=range] { width:100%; accent-color:#64d8ff; }
+  .btns { display:flex; gap:8px; margin-top:8px; }
+  button { background:linear-gradient(145deg,#0c3050,#101e3a); color:#a0dcff; border:1px solid #2878a0; padding:8px 13px; border-radius:14px; cursor:pointer; box-shadow:0 0 14px #08f4 inset,0 0 8px #08f2; font-size:13px; }
+  button.sec { background:#101824; border-color:#2a3a50; color:#8ba8c4; box-shadow:none; }
+  .toggle-grid { display:grid; grid-template-columns: 1fr 1fr; gap:6px; font-size:12px; color:#8ba8c4; }
+  .toggle-grid label { display:flex; align-items:center; gap:6px; }
+  #hud { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0a1018; padding:10px; border-radius:10px; border:1px solid #1a2636; color:#80d8f0; }
+  #log { height:100px; overflow:auto; background:#080e16; border:1px solid #1a2636; border-radius:8px; padding:8px; font:12px/1.5 ui-monospace, monospace; color:#8ba8c4; white-space:pre-wrap; }
+  canvas { width:100%; height:100%; display:block; background:#02040a; }
+  b.section { color:#80c8e8; display:block; margin:8px 0 4px; }
+</style>
+<div id="wrap">
+  <div id="ui">
+    <h1>Boids Swarm</h1>
+    <p class="blurb">Classic Reynolds flocking — separation, alignment, cohesion — with predator pursuit. SoA storage, phase scheduling, archetypes, entity scripts, Not() queries, and events.</p>
+    <div class="btns row">
+      <button id="play">Play</button>
+      <button id="step" class="sec">Step</button>
+      <button id="reset" class="sec">Reset</button>
+    </div>
+    <div class="row">
+      <label>Sim speed (dt) <span id="dtVal"></span></label>
+      <input id="dt" type="range" min="0.005" max="0.06" step="0.005" value="0.016">
+    </div>
+
+    <b class="section">Flocking rules</b>
+    <div class="row">
+      <label>Separation <span id="sepWVal"></span></label>
+      <input id="sepW" type="range" min="0" max="4" step="0.1" value="1.8">
+      <label>Alignment <span id="aliWVal"></span></label>
+      <input id="aliW" type="range" min="0" max="4" step="0.1" value="1.0">
+      <label>Cohesion <span id="cohWVal"></span></label>
+      <input id="cohW" type="range" min="0" max="4" step="0.1" value="1.0">
+    </div>
+
+    <b class="section">Perception</b>
+    <div class="row">
+      <label>Perception radius <span id="percVal"></span></label>
+      <input id="perc" type="range" min="20" max="200" step="5" value="80">
+      <label>Separation radius <span id="sepRVal"></span></label>
+      <input id="sepR" type="range" min="5" max="80" step="2" value="28">
+    </div>
+
+    <b class="section">Populations</b>
+    <div class="row">
+      <label>Prey count <span id="preyVal"></span></label>
+      <input id="prey" type="range" min="50" max="1500" step="25" value="600">
+      <label>Predator count <span id="predVal"></span></label>
+      <input id="pred" type="range" min="0" max="30" step="1" value="5">
+    </div>
+
+    <b class="section">Speed</b>
+    <div class="row">
+      <label>Max prey speed <span id="maxSpdVal"></span></label>
+      <input id="maxSpd" type="range" min="50" max="500" step="10" value="200">
+      <label>Predator speed mult. <span id="predSpdVal"></span></label>
+      <input id="predSpd" type="range" min="1.0" max="2.5" step="0.1" value="1.4">
+      <label>Max steering force <span id="maxFrcVal"></span></label>
+      <input id="maxFrc" type="range" min="50" max="1000" step="25" value="400">
+    </div>
+
+    <b class="section">Predator / prey</b>
+    <div class="row">
+      <label>Chase weight <span id="chaseVal"></span></label>
+      <input id="chase" type="range" min="0" max="6" step="0.2" value="2.5">
+      <label>Flee weight <span id="fleeVal"></span></label>
+      <input id="flee" type="range" min="0" max="8" step="0.2" value="4.0">
+      <label>Flee radius <span id="fleeRVal"></span></label>
+      <input id="fleeR" type="range" min="20" max="250" step="5" value="120">
+    </div>
+
+    <b class="section">Display</b>
+    <div class="row toggle-grid">
+      <label><input id="showTrails" type="checkbox"> Trails</label>
+      <label><input id="showVectors" type="checkbox"> Velocity</label>
+      <label><input id="showPerc" type="checkbox"> Perception</label>
+      <label><input id="showGrid" type="checkbox"> Spatial grid</label>
+    </div>
+
+    <div id="hud" class="row">
+      <span>Time</span><b id="tOut">0.00</b>
+      <span>Prey</span><b id="preyOut">-</b>
+      <span>Predators</span><b id="predOut">-</b>
+      <span>FPS</span><b id="fpsOut">-</b>
+      <span>Catches</span><b id="catchOut">0</b>
+      <span>Scouts</span><b id="scoutOut">0</b>
+    </div>
+    <div class="row">
+      <div>Event log</div>
+      <div id="log"></div>
+    </div>
+    <div class="row" style="font-size:11px; color:#6888a0;">
+      Phases: sense &rarr; steer &rarr; integrate &rarr; wrap &rarr; render &rarr; scripts.<br>
+      SoA store, archetypes, Not() queries, entity scripts, events.
+    </div>
+  </div>
+  <canvas id="cv"></canvas>
+</div>
+<script type="module">
+import {
+  World,
+  defineComponent,
+  defineTag,
+  defineArchetype,
+  compose,
+  createFrom,
+  createMany,
+  Not,
+  PHASE_SCRIPTS,
+  createRealtimeRafLoop,
+} from '../index.js';
+
+// ---------- Constants ----------
+const DEFAULT_SEED = 0xB01D5 >>> 0;
+const TAU = Math.PI * 2;
+
+// ---------- Components ----------
+const Position     = defineComponent('Position',     { x: 0, y: 0 });
+const Velocity     = defineComponent('Velocity',     { dx: 0, dy: 0 });
+const Acceleration = defineComponent('Acceleration', { ax: 0, ay: 0 });
+const Boid         = defineComponent('Boid',         { maxSpeed: 200, maxForce: 400 });
+const Prey         = defineTag('Prey');
+const Predator     = defineTag('Predator');
+const Scout        = defineComponent('Scout', { ttl: 0, heading: 0 });
+const Trail        = defineComponent('Trail', { prevX: 0, prevY: 0, alpha: 0 });
+
+// ---------- Archetypes ----------
+const BaseBoid = defineArchetype('BaseBoid',
+  [Position, (p) => ({ x: p.x ?? 0, y: p.y ?? 0 })],
+  [Velocity, (p) => ({ dx: p.dx ?? 0, dy: p.dy ?? 0 })],
+  [Acceleration, { ax: 0, ay: 0 }],
+  [Boid, (p) => ({ maxSpeed: p.maxSpeed ?? 200, maxForce: p.maxForce ?? 400 })],
+  [Trail, (p) => ({ prevX: p.x ?? 0, prevY: p.y ?? 0, alpha: 0 })],
+);
+
+const PreyArchetype = compose('Prey', BaseBoid, [Prey, {}]);
+const PredatorArchetype = compose('Predator', BaseBoid, [Predator, {}]);
+
+// ---------- UI ----------
+const UI = {
+  play: document.getElementById('play'),
+  step: document.getElementById('step'),
+  reset: document.getElementById('reset'),
+  dt: document.getElementById('dt'),
+  sepW: document.getElementById('sepW'),
+  aliW: document.getElementById('aliW'),
+  cohW: document.getElementById('cohW'),
+  perc: document.getElementById('perc'),
+  sepR: document.getElementById('sepR'),
+  prey: document.getElementById('prey'),
+  pred: document.getElementById('pred'),
+  maxSpd: document.getElementById('maxSpd'),
+  predSpd: document.getElementById('predSpd'),
+  maxFrc: document.getElementById('maxFrc'),
+  chase: document.getElementById('chase'),
+  flee: document.getElementById('flee'),
+  fleeR: document.getElementById('fleeR'),
+  showTrails: document.getElementById('showTrails'),
+  showVectors: document.getElementById('showVectors'),
+  showPerc: document.getElementById('showPerc'),
+  showGrid: document.getElementById('showGrid'),
+  labels: {
+    dt: document.getElementById('dtVal'),
+    sepW: document.getElementById('sepWVal'), aliW: document.getElementById('aliWVal'), cohW: document.getElementById('cohWVal'),
+    perc: document.getElementById('percVal'), sepR: document.getElementById('sepRVal'),
+    prey: document.getElementById('preyVal'), pred: document.getElementById('predVal'),
+    maxSpd: document.getElementById('maxSpdVal'), predSpd: document.getElementById('predSpdVal'), maxFrc: document.getElementById('maxFrcVal'),
+    chase: document.getElementById('chaseVal'), flee: document.getElementById('fleeVal'), fleeR: document.getElementById('fleeRVal'),
+  },
+  out: {
+    t: document.getElementById('tOut'), prey: document.getElementById('preyOut'), pred: document.getElementById('predOut'),
+    fps: document.getElementById('fpsOut'), catches: document.getElementById('catchOut'), scouts: document.getElementById('scoutOut'),
+  },
+  log: document.getElementById('log'),
+};
+
+const sliderKeys = ['dt','sepW','aliW','cohW','perc','sepR','prey','pred','maxSpd','predSpd','maxFrc','chase','flee','fleeR'];
+function syncLabels() {
+  for (const k of sliderKeys) UI.labels[k].textContent = (+UI[k].value).toFixed(k === 'dt' ? 3 : 1);
+}
+for (const k of sliderKeys) UI[k].addEventListener('input', syncLabels);
+syncLabels();
+
+const CV = (() => {
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = cv.clientWidth * dpr;
+    cv.height = cv.clientHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', fit);
+  fit();
+  return { cv, ctx };
+})();
+
+function log(msg) {
+  const time = new Date().toLocaleTimeString();
+  UI.log.textContent = `[${time}] ${msg}\n` + UI.log.textContent.slice(0, 2000);
+}
+
+// ---------- Spatial hash for efficient neighbor queries ----------
+class SpatialGrid {
+  constructor(cellSize, w, h) {
+    this.cellSize = cellSize;
+    this.cols = Math.ceil(w / cellSize) || 1;
+    this.rows = Math.ceil(h / cellSize) || 1;
+    this.cells = new Array(this.cols * this.rows);
+    this.clear();
+  }
+  clear() {
+    for (let i = 0; i < this.cells.length; i++) this.cells[i] = [];
+  }
+  _key(x, y) {
+    const c = Math.floor(x / this.cellSize) % this.cols;
+    const r = Math.floor(y / this.cellSize) % this.rows;
+    return ((r + this.rows) % this.rows) * this.cols + ((c + this.cols) % this.cols);
+  }
+  insert(id, x, y) {
+    this.cells[this._key(x, y)].push(id);
+  }
+  query(x, y, radius, out) {
+    const r = Math.ceil(radius / this.cellSize);
+    const cx = Math.floor(x / this.cellSize);
+    const cy = Math.floor(y / this.cellSize);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const c = ((cx + dx) % this.cols + this.cols) % this.cols;
+        const row = ((cy + dy) % this.rows + this.rows) % this.rows;
+        const cell = this.cells[row * this.cols + c];
+        for (let i = 0; i < cell.length; i++) out.push(cell[i]);
+      }
+    }
+  }
+}
+
+// ---------- World ----------
+let world = null;
+let loop = null;
+let catches = 0;
+let simW = 800, simH = 600; // logical simulation bounds (updated on resize)
+let grid = null; // spatial grid, rebuilt each sense phase
+
+function getSimBounds() {
+  simW = CV.cv.clientWidth;
+  simH = CV.cv.clientHeight;
+}
+
+function buildWorld() {
+  getSimBounds();
+  catches = 0;
+
+  world = World.create({ seed: DEFAULT_SEED, store: 'soa' })
+    .withPhases('sense', 'steer', 'integrate', 'wrap', 'render', PHASE_SCRIPTS)
+    .useScripts({ phase: PHASE_SCRIPTS })
+    .system(senseSystem, 'sense')
+    .system(steerPreySystem, 'steer')
+    .system(steerPredatorSystem, 'steer')
+    .system(integrateSystem, 'integrate')
+    .system(wrapSystem, 'wrap')
+    .system(catchSystem, 'wrap')
+    .system(renderSystem, 'render')
+    .build();
+
+  world.on('catch', (ev) => { catches++; log(`Predator caught prey (total: ${catches})`); });
+  world.on('scout-break', (ev) => { log(`Scout broke from flock`); });
+
+  // Register scout script: manages TTL countdown and cleanup for scouting boids.
+  // Steering is handled directly in the steer phase for zero-lag responsiveness.
+  world.script('scout-behavior', (s) => {
+    s.onTick((_world, id, dt) => {
+      if (!_world.isAlive(id)) return;
+      const scout = _world.get(id, Scout);
+      if (!scout) return;
+      scout.ttl -= dt;  // direct mutation on SoA view
+      if (scout.ttl <= 0) {
+        _world.remove(id, Scout);  // deferred — cleaned up end of tick
+      }
+    });
+  });
+
+  // Spawn prey
+  const preyCount = +UI.prey.value;
+  const preyMaxSpeed = +UI.maxSpd.value;
+  const preyMaxForce = +UI.maxFrc.value;
+  createMany(world, PreyArchetype, preyCount, (i) => {
+    const ang = world.rand() * TAU;
+    const spd = 40 + world.rand() * 80;
+    return {
+      x: world.rand() * simW,
+      y: world.rand() * simH,
+      dx: Math.cos(ang) * spd,
+      dy: Math.sin(ang) * spd,
+      maxSpeed: preyMaxSpeed,
+      maxForce: preyMaxForce,
+    };
+  });
+
+  // Attach scout script to ~3% of prey
+  let scoutCount = 0;
+  for (const [id] of world.query(Prey)) {
+    if (world.rand() < 0.03) {
+      world.addScript(id, 'scout-behavior');
+      scoutCount++;
+    }
+  }
+
+  // Spawn predators
+  const predCount = +UI.pred.value;
+  const predMaxSpeed = preyMaxSpeed * (+UI.predSpd.value);
+  createMany(world, PredatorArchetype, predCount, (i) => {
+    const ang = world.rand() * TAU;
+    const spd = 30 + world.rand() * 60;
+    return {
+      x: world.rand() * simW,
+      y: world.rand() * simH,
+      dx: Math.cos(ang) * spd,
+      dy: Math.sin(ang) * spd,
+      maxSpeed: predMaxSpeed,
+      maxForce: preyMaxForce * 1.2,
+    };
+  });
+}
+
+// ---------- Helper: toroidal distance ----------
+function wrapDist(ax, ay, bx, by) {
+  let dx = bx - ax;
+  let dy = by - ay;
+  if (dx > simW * 0.5) dx -= simW;
+  else if (dx < -simW * 0.5) dx += simW;
+  if (dy > simH * 0.5) dy -= simH;
+  else if (dy < -simH * 0.5) dy += simH;
+  return { dx, dy, d2: dx * dx + dy * dy };
+}
+
+// ---------- Systems ----------
+
+// Sense phase: build spatial grid
+function senseSystem(world, dt) {
+  getSimBounds();
+  const cellSize = Math.max(40, +UI.perc.value);
+  grid = new SpatialGrid(cellSize, simW, simH);
+  for (const [id, pos] of world.query(Position)) {
+    grid.insert(id, pos.x, pos.y);
+  }
+
+  // Occasionally trigger scout behavior on random prey
+  if (world.rand() < 0.008 * dt * 60) {
+    const prey = [...world.query(Prey, Not(Scout))];
+    if (prey.length > 10) {
+      const [sid] = prey[(world.rand() * prey.length) | 0];
+      const heading = world.rand() * TAU;
+      world.add(sid, Scout, { ttl: 2 + world.rand() * 4, heading });
+      world.addScript(sid, 'scout-behavior');
+      world.emit('scout-break', { id: sid });
+    }
+  }
+}
+
+// Steer phase: prey flocking
+function steerPreySystem(world, dt) {
+  const sepWeight = +UI.sepW.value;
+  const aliWeight = +UI.aliW.value;
+  const cohWeight = +UI.cohW.value;
+  const percR = +UI.perc.value;
+  const sepR = +UI.sepR.value;
+  const fleeWeight = +UI.flee.value;
+  const fleeR = +UI.fleeR.value;
+  const percR2 = percR * percR;
+  const sepR2 = sepR * sepR;
+  const fleeR2 = fleeR * fleeR;
+  const neighbors = [];
+
+  for (const [id, pos, vel, acc, boid] of world.query(Position, Velocity, Acceleration, Boid, Prey)) {
+    // Scouts wander independently — apply wandering force and skip flocking
+    const scout = world.get(id, Scout);
+    if (scout && scout.ttl > 0) {
+      const wander = boid.maxForce * 0.45;
+      acc.ax = Math.cos(scout.heading) * wander;
+      acc.ay = Math.sin(scout.heading) * wander;
+      continue;
+    }
+
+    let sepX = 0, sepY = 0, sepCount = 0;
+    let aliDx = 0, aliDy = 0, aliCount = 0;
+    let cohX = 0, cohY = 0, cohCount = 0;
+    let fleeX = 0, fleeY = 0;
+
+    // Query neighbors from spatial grid
+    neighbors.length = 0;
+    grid.query(pos.x, pos.y, percR, neighbors);
+
+    for (let i = 0; i < neighbors.length; i++) {
+      const nid = neighbors[i];
+      if (nid === id) continue;
+      const npos = world.get(nid, Position);
+      if (!npos) continue;
+      const { dx, dy, d2 } = wrapDist(pos.x, pos.y, npos.x, npos.y);
+
+      // Flee from predators
+      if (world.has(nid, Predator) && d2 < fleeR2 && d2 > 0) {
+        const d = Math.sqrt(d2);
+        fleeX -= (dx / d) * (fleeR - d) / fleeR;
+        fleeY -= (dy / d) * (fleeR - d) / fleeR;
+        continue;
+      }
+
+      if (!world.has(nid, Prey)) continue;
+      if (d2 > percR2) continue;
+      if (d2 <= 0) continue;
+
+      const d = Math.sqrt(d2);
+
+      // Separation
+      if (d2 < sepR2) {
+        sepX -= (dx / d) * (sepR - d) / sepR;
+        sepY -= (dy / d) * (sepR - d) / sepR;
+        sepCount++;
+      }
+
+      // Alignment
+      const nvel = world.get(nid, Velocity);
+      if (nvel) {
+        aliDx += nvel.dx;
+        aliDy += nvel.dy;
+        aliCount++;
+      }
+
+      // Cohesion
+      cohX += dx;
+      cohY += dy;
+      cohCount++;
+    }
+
+    let ax = 0, ay = 0;
+
+    // Separation
+    if (sepCount > 0) {
+      ax += (sepX / sepCount) * sepWeight;
+      ay += (sepY / sepCount) * sepWeight;
+    }
+
+    // Alignment: steer toward average heading
+    if (aliCount > 0) {
+      const avgDx = aliDx / aliCount;
+      const avgDy = aliDy / aliCount;
+      ax += (avgDx - vel.dx) * aliWeight * 0.1;
+      ay += (avgDy - vel.dy) * aliWeight * 0.1;
+    }
+
+    // Cohesion: steer toward center of mass
+    if (cohCount > 0) {
+      const cx = cohX / cohCount;
+      const cy = cohY / cohCount;
+      ax += cx * cohWeight * 0.01;
+      ay += cy * cohWeight * 0.01;
+    }
+
+    // Flee from predators
+    ax += fleeX * fleeWeight;
+    ay += fleeY * fleeWeight;
+
+    // Clamp steering force
+    const fMag = Math.sqrt(ax * ax + ay * ay);
+    const maxF = boid.maxForce;
+    if (fMag > maxF) {
+      ax = (ax / fMag) * maxF;
+      ay = (ay / fMag) * maxF;
+    }
+
+    // Direct mutation — visible to later phases in the same tick
+    acc.ax = ax; acc.ay = ay;
+  }
+}
+
+// Steer phase: predator pursuit
+function steerPredatorSystem(world, dt) {
+  const chaseWeight = +UI.chase.value;
+  const sepWeight = +UI.sepW.value;
+  const percR = +UI.perc.value * 1.5; // predators see farther
+  const sepR = +UI.sepR.value * 1.5;
+  const percR2 = percR * percR;
+  const sepR2 = sepR * sepR;
+  const neighbors = [];
+
+  for (const [id, pos, vel, acc, boid] of world.query(Position, Velocity, Acceleration, Boid, Predator)) {
+    let ax = 0, ay = 0;
+
+    // Find nearest prey
+    let nearestD2 = Infinity, nearestDx = 0, nearestDy = 0;
+    neighbors.length = 0;
+    grid.query(pos.x, pos.y, percR, neighbors);
+
+    let sepX = 0, sepY = 0, sepCount = 0;
+
+    for (let i = 0; i < neighbors.length; i++) {
+      const nid = neighbors[i];
+      if (nid === id) continue;
+      const npos = world.get(nid, Position);
+      if (!npos) continue;
+      const { dx, dy, d2 } = wrapDist(pos.x, pos.y, npos.x, npos.y);
+
+      // Separate from other predators
+      if (world.has(nid, Predator) && d2 < sepR2 && d2 > 0) {
+        const d = Math.sqrt(d2);
+        sepX -= (dx / d) * (sepR - d) / sepR;
+        sepY -= (dy / d) * (sepR - d) / sepR;
+        sepCount++;
+      }
+
+      // Chase nearest prey
+      if (world.has(nid, Prey) && d2 < nearestD2) {
+        nearestD2 = d2;
+        nearestDx = dx;
+        nearestDy = dy;
+      }
+    }
+
+    // Apply chase
+    if (nearestD2 < Infinity) {
+      const d = Math.sqrt(nearestD2);
+      if (d > 0) {
+        ax += (nearestDx / d) * chaseWeight * boid.maxForce;
+        ay += (nearestDy / d) * chaseWeight * boid.maxForce;
+      }
+    } else {
+      // Wander when no prey nearby
+      const wAng = Math.atan2(vel.dy, vel.dx) + (world.rand() - 0.5) * 1.5;
+      ax += Math.cos(wAng) * boid.maxForce * 0.5;
+      ay += Math.sin(wAng) * boid.maxForce * 0.5;
+    }
+
+    // Predator separation
+    if (sepCount > 0) {
+      ax += (sepX / sepCount) * sepWeight * boid.maxForce;
+      ay += (sepY / sepCount) * sepWeight * boid.maxForce;
+    }
+
+    // Clamp
+    const fMag = Math.sqrt(ax * ax + ay * ay);
+    const maxF = boid.maxForce;
+    if (fMag > maxF) {
+      ax = (ax / fMag) * maxF;
+      ay = (ay / fMag) * maxF;
+    }
+
+    // Direct mutation — visible to later phases in the same tick
+    acc.ax = ax; acc.ay = ay;
+  }
+}
+
+// Integrate phase: apply forces via direct mutation (immediate within tick)
+function integrateSystem(world, dt) {
+  const preyMaxSpd = +UI.maxSpd.value;
+  const predMult = +UI.predSpd.value;
+
+  for (const [id, pos, vel, acc] of world.query(Position, Velocity, Acceleration)) {
+    // Store previous position for trails (direct mutation on the SoA view)
+    const trail = world.get(id, Trail);
+    if (trail) {
+      trail.prevX = pos.x;
+      trail.prevY = pos.y;
+      trail.alpha = Math.min(1, Math.sqrt(vel.dx * vel.dx + vel.dy * vel.dy) / 200);
+    }
+
+    // Euler integration
+    vel.dx += acc.ax * dt;
+    vel.dy += acc.ay * dt;
+
+    // Clamp speed
+    const maxSpd = world.has(id, Predator) ? preyMaxSpd * predMult : preyMaxSpd;
+    const spd = Math.sqrt(vel.dx * vel.dx + vel.dy * vel.dy);
+    if (spd > maxSpd) {
+      vel.dx = (vel.dx / spd) * maxSpd;
+      vel.dy = (vel.dy / spd) * maxSpd;
+    }
+
+    // Maintain minimum speed
+    const minSpd = maxSpd * 0.15;
+    if (spd < minSpd && spd > 0) {
+      vel.dx = (vel.dx / spd) * minSpd;
+      vel.dy = (vel.dy / spd) * minSpd;
+    }
+
+    // Move
+    pos.x += vel.dx * dt;
+    pos.y += vel.dy * dt;
+  }
+}
+
+// Wrap phase: toroidal boundaries (direct mutation)
+function wrapSystem(world, dt) {
+  for (const [id, pos] of world.query(Position)) {
+    if (pos.x < 0) pos.x += simW;
+    else if (pos.x >= simW) pos.x -= simW;
+    if (pos.y < 0) pos.y += simH;
+    else if (pos.y >= simH) pos.y -= simH;
+  }
+}
+
+// Catch phase: predators eat nearby prey
+function catchSystem(world, dt) {
+  const catchR2 = 12 * 12;
+  const toDestroy = [];
+
+  for (const [pid, ppos] of world.query(Position, Predator)) {
+    for (const [preyId, preyPos] of world.query(Position, Prey)) {
+      if (toDestroy.indexOf(preyId) >= 0) continue;
+      const { d2 } = wrapDist(ppos.x, ppos.y, preyPos.x, preyPos.y);
+      if (d2 < catchR2) {
+        toDestroy.push(preyId);
+        world.emit('catch', { predator: pid, prey: preyId });
+        break; // one catch per predator per tick
+      }
+    }
+  }
+  for (const id of toDestroy) {
+    if (world.isAlive(id)) world.destroy(id);
+  }
+
+  // Respawn prey to maintain population
+  const currentPrey = [...world.query(Prey)].length;
+  const targetPrey = +UI.prey.value;
+  if (currentPrey < targetPrey * 0.9) {
+    const toSpawn = Math.min(5, targetPrey - currentPrey);
+    for (let i = 0; i < toSpawn; i++) {
+      const ang = world.rand() * TAU;
+      const spd = 50 + world.rand() * 100;
+      const id = createFrom(world, PreyArchetype, {
+        x: world.rand() * simW,
+        y: world.rand() * simH,
+        dx: Math.cos(ang) * spd,
+        dy: Math.sin(ang) * spd,
+        maxSpeed: +UI.maxSpd.value,
+        maxForce: +UI.maxFrc.value,
+      });
+    }
+  }
+}
+
+// ---------- Render ----------
+function renderSystem(world, dt) {
+  const { ctx, cv } = CV;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+
+  // Background gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#060c18');
+  sky.addColorStop(1, '#020408');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+
+  // Optional: spatial grid debug
+  if (UI.showGrid.checked && grid) {
+    ctx.strokeStyle = 'rgba(40,80,120,0.15)';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x < w; x += grid.cellSize) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    for (let y = 0; y < h; y += grid.cellSize) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+  }
+
+  // Trails
+  if (UI.showTrails.checked) {
+    ctx.lineWidth = 1;
+    for (const [id, pos, trail] of world.query(Position, Trail)) {
+      if (trail.alpha < 0.05) continue;
+      const isPred = world.has(id, Predator);
+      const hue = isPred ? 0 : 190;
+      ctx.strokeStyle = `hsla(${hue},85%,65%,${trail.alpha * 0.3})`;
+      ctx.beginPath();
+      ctx.moveTo(trail.prevX, trail.prevY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
+  }
+
+  // Boid triangles — prey
+  const boidSize = Math.max(4, Math.min(8, w / 200));
+  ctx.lineWidth = 0;
+
+  for (const [id, pos, vel] of world.query(Position, Velocity, Prey)) {
+    const heading = Math.atan2(vel.dy, vel.dx);
+    const isScout = world.has(id, Scout);
+    const hue = isScout ? 60 : 190;
+    const lum = isScout ? 70 : 62;
+    ctx.fillStyle = `hsl(${hue},80%,${lum}%)`;
+
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.rotate(heading);
+    ctx.beginPath();
+    ctx.moveTo(boidSize, 0);
+    ctx.lineTo(-boidSize * 0.6, -boidSize * 0.45);
+    ctx.lineTo(-boidSize * 0.6, boidSize * 0.45);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Optional perception radius
+    if (UI.showPerc.checked && id % 20 === 0) {
+      ctx.strokeStyle = 'rgba(100,200,255,0.08)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, +UI.perc.value, 0, TAU);
+      ctx.stroke();
+    }
+  }
+
+  // Boid triangles — predators (larger, red)
+  const predSize = boidSize * 1.8;
+  for (const [id, pos, vel] of world.query(Position, Velocity, Predator)) {
+    const heading = Math.atan2(vel.dy, vel.dx);
+
+    // Glow
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,80,60,0.5)';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ff5040';
+    ctx.translate(pos.x, pos.y);
+    ctx.rotate(heading);
+    ctx.beginPath();
+    ctx.moveTo(predSize, 0);
+    ctx.lineTo(-predSize * 0.6, -predSize * 0.5);
+    ctx.lineTo(-predSize * 0.6, predSize * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Velocity vectors
+  if (UI.showVectors.checked) {
+    ctx.lineWidth = 0.8;
+    for (const [id, pos, vel] of world.query(Position, Velocity)) {
+      const isPred = world.has(id, Predator);
+      ctx.strokeStyle = isPred ? 'rgba(255,100,80,0.3)' : 'rgba(80,200,255,0.15)';
+      const scale = 0.06;
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      ctx.lineTo(pos.x + vel.dx * scale, pos.y + vel.dy * scale);
+      ctx.stroke();
+    }
+  }
+
+  // HUD
+  const preyCount = [...world.query(Prey)].length;
+  const predCount = [...world.query(Predator)].length;
+  const scoutCount = [...world.query(Scout)].length;
+  UI.out.t.textContent = world.time.toFixed(2);
+  UI.out.prey.textContent = preyCount;
+  UI.out.pred.textContent = predCount;
+  UI.out.catches.textContent = catches;
+  UI.out.scouts.textContent = scoutCount;
+}
+
+// ---------- Loop ----------
+function setRunningUi(running) { UI.play.textContent = running ? 'Pause' : 'Play'; }
+
+function reset() {
+  loop?.stop();
+  buildWorld();
+  loop = createRealtimeRafLoop({
+    world,
+    onStats: (stats) => { UI.out.fps.textContent = stats.fps ? stats.fps.toFixed(0) : '-'; },
+  });
+  UI.log.textContent = '';
+  loop.start({ reset: true });
+  setRunningUi(true);
+  log('Simulation reset');
+}
+
+function step() {
+  if (!world || loop?.isRunning()) return;
+  world.tick(+UI.dt.value);
+}
+
+function togglePlay() {
+  if (!loop) return;
+  if (loop.isRunning()) { loop.stop(); setRunningUi(false); }
+  else { loop.start(); setRunningUi(true); }
+}
+
+UI.play.addEventListener('click', togglePlay);
+UI.step.addEventListener('click', step);
+UI.reset.addEventListener('click', reset);
+
+syncLabels();
+reset();
+</script>
