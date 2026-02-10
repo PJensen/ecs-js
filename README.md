@@ -2,7 +2,7 @@
 Entity–Component–System architecture for JavaScript
 Zero dependencies. No build step. Deterministic, phase-agnostic, and caller-driven — your loop, your rules.
 
-Purpose-built for agents of all kinds — from autonomous copilots to code-canvas assistants — so they can reason about worlds step-by-step while driving real-time or discrete simulations with confidence.
+Designed for two primary use cases: building simulations, and building agent-driven simulations where state must be stepped, inspected, and replayed deterministically. ⚙️🧠
 
 Suitable for both discrete-event and real-time updates.
 
