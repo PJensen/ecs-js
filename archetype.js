@@ -308,7 +308,7 @@ function _norm(steps) {
 /** @private */
 function _apply(world, id, archetype, params, inheritedOverrides) {
   for (const step of archetype.steps) {
-    if (step && step.use && _isArchetype(step.use)) { _apply(world, id, step.use, params, _mergeOverrides(inheritedOverrides, step.with)); continue; }
+    if (step && step.use && _isArchetype(step.use)) { _apply(world, id, step.use, params, _mergeOverrides(step.with, inheritedOverrides)); continue; }
     if (typeof step === 'function') { step(world, id, params); continue; }
     if (step && step.t === 'comp') {
       const Comp = step.Comp, init = step.init;
