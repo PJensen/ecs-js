@@ -308,6 +308,7 @@ export class World {
       }
     }
     const rec = Object.assign({}, deepClone(Comp.defaults), deepClone(data || {}));
+    assertNoFunctions(rec, Comp.name, '');
     if (typeof Comp.validate === 'function' && !Comp.validate(rec)) throw new Error(`Validation failed for component ${Comp.name}`);
     this._mapFor(Comp).set(id, rec);
     this._markChanged(Comp.key, id);
@@ -382,6 +383,7 @@ export class World {
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('set: entity lacks component');
     const next = Object.assign({}, rec, patch);
+    assertNoFunctions(next, Comp.name, '');
     if (typeof Comp.validate === 'function' && !Comp.validate(next)) throw new Error(`Validation failed for component ${Comp.name}`);
     Object.assign(rec, patch);
     this._markChanged(Comp.key, id);
@@ -408,6 +410,7 @@ export class World {
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('mutate: entity lacks component');
     fn(rec);
+    assertNoFunctions(rec, Comp.name, '');
     this._markChanged(Comp.key, id);
     return rec;
   }
@@ -828,6 +831,19 @@ function makeSoAStore(Comp) {
     entityIds() { const arr = Array.from(present.values()); arr.sort((a, b) => a - b); return arr; },
     fast
   };
+}
+
+/** Reject function values anywhere in component data (components must be pure serializable data). */
+function assertNoFunctions(obj, compName, path) {
+  if (typeof obj === 'function') {
+    throw new TypeError(
+      `Component "${compName}": function values are not allowed in component data (at "${path || 'root'}")`
+    );
+  }
+  if (obj !== null && typeof obj === 'object' && !ArrayBuffer.isView(obj)) {
+    const keys = Array.isArray(obj) ? obj.keys() : Object.keys(obj);
+    for (const k of keys) assertNoFunctions(obj[k], compName, path ? `${path}.${k}` : String(k));
+  }
 }
 
 /** Deep clone for component defaults/data (keeps host objects by ref). */
