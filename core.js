@@ -175,6 +175,26 @@ export class World {
     return new WorldBuilder(opts);
   }
 
+  /** Construct a new world from a snapshot and component registry.
+   * Similar to deserialize helpers, but available from the core API.
+   * @param {object} json - A v1 snapshot ({@link import('./serialization.js').Snapshot}).
+   * @param {Map<string, Component>|Record<string, Component>} registry
+   * @param {{ seed?: number, store?: string, skipUnknown?: boolean }} [opts]
+   * @returns {World}
+   */
+  static fromSnapshot(json, registry, opts = {}) {
+    const { seed: seedOpt, store: storeOpt, skipUnknown, ...worldOpts } = opts || {};
+    const store = storeOpt || json?.meta?.store;
+    const seed = (seedOpt != null) ? (seedOpt >>> 0) : (json?.meta?.seed >>> 0);
+    const world = new this({ ...worldOpts, seed, store });
+    const reg = _registryToMap(registry, 'fromSnapshot');
+    for (const Comp of reg.values()) {
+      if (Comp?.key && typeof Comp.name === 'string') world._components.set(Comp.key, Comp);
+    }
+    world.load(json, { skipUnknown: !!skipUnknown });
+    return world;
+  }
+
   /** Install/replace the scheduler. Must be (world, dt) => void.
    * @param {(world:World, dt:number)=>void} fn
    * @returns {this}
@@ -972,6 +992,14 @@ function _aliveFromComps(comps) {
   const s = new Set();
   for (const rows of Object.values(comps || {})) for (const [id] of rows) s.add(id);
   return Array.from(s);
+}
+
+function _registryToMap(registry, context = 'registry') {
+  if (!registry) throw new Error(`${context}: registry required`);
+  if (registry instanceof Map) return registry;
+  const map = new Map();
+  for (const [name, Comp] of Object.entries(registry)) map.set(name, Comp);
+  return map;
 }
 
 /** Sorted intersection helper. */

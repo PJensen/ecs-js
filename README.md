@@ -324,10 +324,12 @@ Archetypes can nest, clone existing entities, or define reusable spawn logic.
 
 ```js
 import { serializeWorld, deserializeWorld, makeRegistry } from 'ecs-js/serialization.js'
+import { World } from 'ecs-js/index.js'
 
 const reg = makeRegistry(Position, Velocity, Visible)
 const snap = serializeWorld(world)
 const clone = deserializeWorld(snap, reg, { World })
+const clone2 = World.fromSnapshot(snap, reg)
 ```
 
 Serialization is schema-driven via a component registry, ensuring name-based round-tripping across runs.

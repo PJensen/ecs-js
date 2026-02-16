@@ -276,6 +276,31 @@ test('applySnapshot rejects invalid entity IDs from snapshot', () => {
   );
 });
 
+test('World.fromSnapshot builds world from snapshot + registry', () => {
+  const src = new World({ seed: 9090, store: 'map' });
+  const a = src.create();
+  const b = src.create();
+  src.add(a, Position, { x: 11, y: 12 });
+  src.add(b, Position, { x: 13, y: 14 });
+  src.add(b, Owner, { targetId: a });
+  src.time = 0;
+  src.frame = 3;
+
+  const snapshot = serializeWorld(src);
+  const registry = makeRegistry(Position, Owner);
+
+  const fromSnapshot = World.fromSnapshot(snapshot, registry);
+  assert.ok(fromSnapshot instanceof World);
+  assert.equal(fromSnapshot.seed, snapshot.meta.seed);
+  assert.equal(fromSnapshot.storeMode, snapshot.meta.store);
+  assert.deepEqual(fromSnapshot.get(a, Position), { x: 11, y: 12 });
+  assert.equal(fromSnapshot.get(b, Owner).targetId, a);
+  assert.equal(fromSnapshot.time, 0);
+  assert.equal(fromSnapshot.frame, 3);
+
+  assert.throws(() => World.fromSnapshot(snapshot), Error, /fromSnapshot: registry required/);
+});
+
 function sortByVec(a, b) {
   return (a.x - b.x) || (a.y - b.y);
 }
