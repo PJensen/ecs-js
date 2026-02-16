@@ -241,6 +241,69 @@ export class World {
     this.alive.add(id);
     return id;
   }
+  /** Replace world state from a JSON snapshot, preserving original entity IDs
+   * so that cross-entity references embedded in component payloads remain valid.
+   * Builds a component registry automatically from previously seen components.
+   * @param {object} json - A v1 snapshot ({@link import('./serialization.js').Snapshot}).
+   * @param {{ skipUnknown?: boolean }} [opts]
+   * @returns {World}
+   */
+  load(json, opts = {}) {
+    if (this._inTick) throw new Error('load: cannot be called during tick');
+    if (!json || typeof json !== 'object' || json.v !== 1 || !json.comps || typeof json.comps !== 'object')
+      throw new Error('load: invalid snapshot format');
+
+    // Build name→Comp registry from components this world already knows.
+    const reg = new Map();
+    for (const Comp of this._components.values()) {
+      if (Comp?.name) reg.set(Comp.name, Comp);
+    }
+
+    if (!opts.skipUnknown) {
+      for (const name of Object.keys(json.comps)) {
+        if (!reg.has(name)) throw new Error(`load: unknown component '${name}'`);
+      }
+    }
+
+    const _apply = () => {
+      // Clear existing entities.
+      for (const id of Array.from(this.alive)) this.destroy(id);
+
+      // Restore original entity IDs directly.
+      const sourceAlive = (json.alive || _aliveFromComps(json.comps)).slice().sort((a, b) => a - b);
+      for (const id of sourceAlive) {
+        if (!Number.isInteger(id) || id <= 0) throw new Error(`load: invalid entity id '${id}'`);
+      }
+      this._free.length = 0;
+      const maxId = sourceAlive.length ? sourceAlive[sourceAlive.length - 1] : 0;
+      this._nextId = maxId + 1;
+      for (const id of sourceAlive) this.alive.add(id);
+
+      // Apply component data.
+      for (const [name, rows] of Object.entries(json.comps)) {
+        const Comp = reg.get(name);
+        if (!Comp) continue;
+        for (const [id, payload] of rows) {
+          if (!this.alive.has(id)) continue;
+          this.add(id, Comp, payload);
+        }
+      }
+
+      if (json.meta && typeof json.meta === 'object') {
+        if (Object.prototype.hasOwnProperty.call(json.meta, 'time')) {
+          const t = Number(json.meta.time);
+          this.time = Number.isFinite(t) ? t : 0;
+        }
+        if (Object.prototype.hasOwnProperty.call(json.meta, 'frame')) {
+          const f = Number(json.meta.frame);
+          this.frame = Number.isFinite(f) ? (f | 0) : 0;
+        }
+      }
+      return this;
+    };
+
+    return this.batch?.(() => _apply()) ?? _apply();
+  }
   /** Destroy an entity immediately or defer if inside a tick.
    * @param {number} id
    * @returns {boolean|null}
@@ -902,6 +965,13 @@ function diffRecords(prev = {}, next = {}) {
   if (Object.keys(removed).length) result.removed = removed;
   if (Object.keys(changed).length) result.changed = changed;
   return Object.keys(result).length ? result : null;
+}
+
+/** Collect alive ids from component rows when snapshot.alive is absent. */
+function _aliveFromComps(comps) {
+  const s = new Set();
+  for (const rows of Object.values(comps || {})) for (const [id] of rows) s.add(id);
+  return Array.from(s);
 }
 
 /** Sorted intersection helper. */

@@ -121,6 +121,7 @@ export function deserializeWorld(data, registry, opts = {}) {
  * @returns {World}
  */
 export function applySnapshot(world, data, registry, opts = {}) {
+  if (world?._inTick) throw new Error('applySnapshot: cannot be called during tick');
   _assertSnapshot(data);
 
   const mode = opts.mode || 'replace'; // 'replace' | 'append'
@@ -143,10 +144,32 @@ export function applySnapshot(world, data, registry, opts = {}) {
       for (const id of Array.from(world.alive)) world.destroy(id);
     }
     const idMap = new Map();
-    const sourceAlive = (data.alive || _collectAliveFromComps(data)).sort((a, b) => a - b);
-    for (const oldId of sourceAlive) {
-      const newId = remap ? (remap(oldId) | 0) || world.create() : world.create();
-      idMap.set(oldId, newId);
+    const sourceAlive = (data.alive || _collectAliveFromComps(data)).slice().sort((a, b) => a - b);
+    for (const id of sourceAlive) {
+      if (!Number.isInteger(id) || id <= 0) throw new Error(`applySnapshot: invalid entity id '${id}'`);
+    }
+    if (mode === 'replace' && !remap) {
+      // Restore original entity IDs directly. This preserves cross-entity
+      // references stored inside component payloads without needing to walk
+      // every payload and remap embedded IDs.
+      world._free.length = 0;
+      const maxId = sourceAlive.length ? sourceAlive[sourceAlive.length - 1] : 0;
+      world._nextId = maxId + 1;
+      for (const oldId of sourceAlive) {
+        world.alive.add(oldId);
+        idMap.set(oldId, oldId);
+      }
+    } else {
+      for (const oldId of sourceAlive) {
+        let newId;
+        if (remap) {
+          const mapped = Number(remap(oldId));
+          newId = (Number.isInteger(mapped) && mapped > 0) ? mapped : world.create();
+        } else {
+          newId = world.create();
+        }
+        idMap.set(oldId, newId);
+      }
     }
     for (const [name, rows] of Object.entries(data.comps || {})) {
       const Comp = mapNameToComp.get(name);
@@ -157,9 +180,15 @@ export function applySnapshot(world, data, registry, opts = {}) {
         world.add(id, Comp, _clonePlain(payload));
       }
     }
-    if (data.meta) {
-      world.time = +data.meta.time || world.time || 0;
-      world.frame = (data.meta.frame | 0) || world.frame || 0;
+    if (data.meta && typeof data.meta === 'object') {
+      if (Object.prototype.hasOwnProperty.call(data.meta, 'time')) {
+        const t = Number(data.meta.time);
+        world.time = Number.isFinite(t) ? t : 0;
+      }
+      if (Object.prototype.hasOwnProperty.call(data.meta, 'frame')) {
+        const f = Number(data.meta.frame);
+        world.frame = Number.isFinite(f) ? (f | 0) : 0;
+      }
     }
     return world;
   }
@@ -169,7 +198,7 @@ export function applySnapshot(world, data, registry, opts = {}) {
 /** @private */
 function _normalizeInclude(val) { if (!val) return null; if (val instanceof Set) return val; return new Set(Array.isArray(val) ? val : [val]); }
 /** @private */
-function _assertSnapshot(d) { if (!d || typeof d !== 'object' || d.v !== 1 || !d.comps) throw new Error('snapshot: invalid format'); }
+function _assertSnapshot(d) { if (!d || typeof d !== 'object' || d.v !== 1 || !d.comps || typeof d.comps !== 'object') throw new Error('snapshot: invalid format'); }
 /** @private */
 function _normalizeRegistry(reg) { if (!reg) throw new Error('registry required'); if (reg instanceof Map) return reg; const m = new Map(); for (const [k, v] of Object.entries(reg)) m.set(k, v); return m; }
 /** @private */
@@ -179,6 +208,6 @@ function _guessCompName(_world, ckey, store) { if (store?._comp?.name) return st
 /** @private */
 function _lookupCompByName(world, name) { for (const [ck, s] of world._store) { const n = _guessCompName(world, ck, s); if (n === name && s._comp) return s._comp; } return null; }
 /** @private */
-function _collectAliveFromComps(data) { const s = new Set(); for (const rows of Object.values(data.comps || {})) for (const [id] of rows) s.add(id | 0); return Array.from(s); }
+function _collectAliveFromComps(data) { const s = new Set(); for (const rows of Object.values(data.comps || {})) for (const [id] of rows) s.add(id); return Array.from(s); }
 /** @private */
 function _guessStore(world) { return world.storeMode || 'map'; }
