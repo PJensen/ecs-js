@@ -16,15 +16,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v1
+        uses: denoland/setup-deno@v2
         with:
-          deno-version: v1.x
+          deno-version: v2.x
 
       - name: Lint
-        run: deno lint --ignore=dist
+        run: deno task lint
 
       - name: Test
-        run: deno test --allow-read tests/
+        run: deno task test
 
       - name: Build bundle (local parity)
         env:

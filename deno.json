@@ -1,0 +1,52 @@
+{
+  "name": "@pjensen/ecs-js",
+  "version": "0.1.1",
+  "exports": {
+    ".": "./index.js",
+    "./index": "./index.js",
+    "./index.js": "./index.js",
+    "./core": "./core.js",
+    "./core.js": "./core.js",
+    "./systems": "./systems.js",
+    "./systems.js": "./systems.js",
+    "./hierarchy": "./hierarchy.js",
+    "./hierarchy.js": "./hierarchy.js",
+    "./serialization": "./serialization.js",
+    "./serialization.js": "./serialization.js",
+    "./crossWorld": "./crossWorld.js",
+    "./crossWorld.js": "./crossWorld.js",
+    "./archetype": "./archetype.js",
+    "./archetype.js": "./archetype.js",
+    "./rng": "./rng.js",
+    "./rng.js": "./rng.js",
+    "./scripts": "./scripts.js",
+    "./scripts.js": "./scripts.js",
+    "./scriptsPhasesExtra": "./scriptsPhasesExtra.js",
+    "./scriptsPhasesExtra.js": "./scriptsPhasesExtra.js",
+    "./adapters/scriptRouter": "./adapters/scriptRouter.js",
+    "./adapters/scriptRouter.js": "./adapters/scriptRouter.js",
+    "./adapters/raf-adapters": "./adapters/raf-adapters.js",
+    "./adapters/raf-adapters.js": "./adapters/raf-adapters.js"
+  },
+  "tasks": {
+    "lint": "deno lint --ignore=dist,tests --rules-exclude=no-slow-types",
+    "test": "deno test --allow-read tests/",
+    "check": "deno check index.js tests/*.mjs",
+    "dry-publish": "deno publish --dry-run"
+  },
+  "publish": {
+    "include": [
+      "README.md",
+      "LICENSE",
+      "*.js",
+      "adapters/*.js",
+      "ecs.d.ts"
+    ],
+    "exclude": [
+      "demo/",
+      "dist/",
+      "tests/",
+      ".github/"
+    ]
+  }
+}
