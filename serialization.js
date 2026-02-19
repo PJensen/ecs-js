@@ -202,7 +202,19 @@ function _assertSnapshot(d) { if (!d || typeof d !== 'object' || d.v !== 1 || !d
 /** @private */
 function _normalizeRegistry(reg) { if (!reg) throw new Error('registry required'); if (reg instanceof Map) return reg; const m = new Map(); for (const [k, v] of Object.entries(reg)) m.set(k, v); return m; }
 /** @private */
-function _clonePlain(x) { if (!x || typeof x !== 'object') return x; return JSON.parse(JSON.stringify(x)); }
+function _clonePlain(x) {
+  if (typeof structuredClone === 'function') {
+    try { return structuredClone(x); } catch {}
+  }
+  if (!x || typeof x !== 'object') return x;
+  if (Array.isArray(x)) return x.map(_clonePlain);
+  const proto = Object.getPrototypeOf(x);
+  const isPlain = (proto === Object.prototype || proto === null);
+  if (!isPlain) return x;
+  const out = {};
+  for (const key of Object.keys(x)) out[key] = _clonePlain(x[key]);
+  return out;
+}
 /** @private */
 function _guessCompName(_world, ckey, store) { if (store?._comp?.name) return store._comp.name; const d = ckey?.description; return (typeof d === 'string') ? d : null; }
 /** @private */

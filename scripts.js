@@ -49,6 +49,7 @@ function _ensureScriptPhase(phase) {
 function _makeHelper(world, eid, args) {
     const handlers = {};
     const pendingKeys = new Set();
+    let helper = null;
     const bag = {
         world,
         entity: eid,
@@ -57,20 +58,20 @@ function _makeHelper(world, eid, args) {
             if (typeof name !== 'string' || !name) throw new Error('script helper on(name, fn) requires a name');
             if (typeof fn !== 'function') throw new Error(`script handler for ${name} must be a function`);
             handlers[name] = fn;
-            return bag;
+            return helper || bag;
         },
         use(source) {
-            if (!source) return bag;
+            if (!source) return helper || bag;
             if (typeof source === 'function') {
                 const res = source(world, eid, args) || {};
                 Object.assign(handlers, _sanitizeHandlers(res));
             } else {
                 Object.assign(handlers, _sanitizeHandlers(source));
             }
-            return bag;
+            return helper || bag;
         }
     };
-    const helper = new Proxy(bag, {
+    helper = new Proxy(bag, {
         get(target, key) {
             if (key in target) return target[key];
             if (typeof key !== 'string') return undefined;
@@ -80,7 +81,7 @@ function _makeHelper(world, eid, args) {
                 if (typeof fn !== 'function') throw new Error(`script handler for ${keyName} must be a function`);
                 pendingKeys.delete(keyName);
                 handlers[keyName] = fn;
-                return target;
+                return helper;
             };
         }
     });

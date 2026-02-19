@@ -14,7 +14,7 @@ import { ScriptRef, ScriptMeta } from './scripts.js';
 
 // Optional per-entity override: which phase should this script's tick run in?
 export const ScriptPhase = defineComponent('ScriptPhase', { tick: 'scripts' }, {
-    validate() { return typeof this.tick === 'string' && this.tick.length > 0; }
+    validate(rec) { return typeof rec?.tick === 'string' && rec.tick.length > 0; }
 });
 
 

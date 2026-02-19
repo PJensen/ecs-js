@@ -133,7 +133,7 @@ for (const [id, pos, vel] of world.query(Position, Velocity)) {
 Queries return iterable tuples.
 Supports `Not(Comp)`, `Changed(Comp)`, and query options like `orderBy`, `limit`, and `offset`.
 
-Each iterator also exposes `.run(fn)` (to execute a callback for every tuple) and `.count({ cheap })` when you just need the
+Each iterator also exposes `.run(fn)` (to execute a callback for every yielded result) and `.count({ cheap })` when you just need the
 cardinality.
 
 #### Query Builder
@@ -150,8 +150,8 @@ for (const [id, pos, vel] of moving()) {
   // executes with cached component lists + your filters
 }
 
-const projected = moving.project((pos, vel, id) => ({ id, vel }))
-projected.run(({ id, vel }) => console.log(id, vel))
+const projected = moving.project((id, pos, vel) => ({ id, vel }))
+projected().run(({ id, vel }) => console.log(id, vel))
 ```
 
 The builder returns an immutable handle; chaining `where`, `project`, `orderBy`, `offset`, or `limit` creates a new handle while
@@ -260,9 +260,9 @@ Highlights:
 
 - `debug.inspect(id)` stores the latest snapshot and diff per component so you can trace what changed across ticks. Snapshots include `alive`, `removed`, and per-component `changed` flags.
 - `debug.forget(id)` discards the cached history for an entity so future inspections start fresh — handy for large worlds or long-running sessions.
-- `world.enableDebug(false)` leaves the helper in place but stops capturing history until you re-enable it, keeping overhead out of release builds.
+- `world.enableDebug(false)` toggles `world.debug.enabled` for tooling/visibility, while `inspect` remains callable.
 
-Inspection hooks are inert when debug mode is disabled, so you can leave calls in place without paying the cost at runtime.
+If you need zero debug overhead in production loops, keep `world.debug.inspect(...)` calls out of the hot path.
 
 ---
 
@@ -375,7 +375,8 @@ Deterministic, topologically sorted order between systems within each phase.
 * `createDualLoopRafLoop(options)` — decouples rendering from simulation; queue or advance sim time manually while RAF drives the view layer.
 * `createRafLoop({ mode: 'realtime' | 'dual-loop', ... })` — convenience factory that chooses between the two.
 
-Both adapters accept `request`, `cancel`, and `now` overrides (for tests or custom hosts), surface immutable stats via `getStats()`, and expose lifecycle hooks (`beforeFrame`, `afterFrame`, `onAnimationFrame`, `onStats`). Each adapter returns a controller with `start()`, `stop()`, and helpers such as `advanceSim()`, `queueSimStep()`, and `resetStats()`.
+Both adapters accept `request`, `cancel`, and `now` overrides (for tests or custom hosts), surface immutable stats via `getStats()`, and expose lifecycle hooks (`beforeFrame`, `afterFrame`, `onAnimationFrame`, `onStats`).  
+`createRealtimeRafLoop(...)` returns `start()`, `stop()`, `stepWorldImmediate()`, and stats/listener helpers; `createDualLoopRafLoop(...)` returns `start()`, `stop()`, `advanceSim()`, `queueSimStep()`, and related frame/sim controls.
 
 Use them when you want a declarative RAF loop without rebuilding state tracking or worrying about accumulator drift. The manual example below remains for developers who prefer bespoke wiring.
 
@@ -386,7 +387,7 @@ Use them when you want a declarative RAF loop without rebuilding state tracking 
 ### 1. As a Git Submodule
 
 ```bash
-git submodule add https://github.com/your-org/ecs-js.git lib/ecs-js
+git submodule add https://github.com/pjensen/ecs-js.git lib/ecs-js
 git commit -m "Add ecs-js as submodule"
 ```
 
@@ -457,7 +458,6 @@ requestAnimationFrame(frame)
 
 ```js
 import { World, defineComponent, defineTag } from './core.js'
-import { mulberry32 } from './rng.js'
 import { serializeWorld, makeRegistry } from './serialization.js'
 
 // Components (examples)
@@ -501,7 +501,7 @@ Add behavior to entities by attaching a ScriptRef that resolves to a small handl
 
 ```js
 import { World } from './core.js'
-import { registerSystem, composeScheduler } from './systems.js'
+import { composeScheduler } from './systems.js'
 import { installScriptsAPI, ScriptRef, ScriptMeta, PHASE_SCRIPTS } from './scripts.js'
 
 const world = installScriptsAPI(new World({ seed: 42 }))
@@ -570,7 +570,7 @@ The helper exposes:
 - `helper.use(factoryOrHandlers)` to compose other handler tables.
 - Access to `helper.world`, `helper.entity`, and `helper.args` so you can stash local state.
 
-`world.scripts.handlersOf(eid)` returns the sanitized handler table, `.refresh()` forces reattachment (useful after hot reloads), and `.clear()` resets the registry between tests. All helpers return the world so you can chain registrations inline with your setup.
+`world.scripts.handlersOf(eid)` returns the sanitized handler table, `.refresh()` forces reattachment (useful after hot reloads), and `.clear()` resets the registry between tests. `world.script(...)`, `world.addScript(...)`, and `world.removeScript(...)` all return the world so you can chain setup ergonomically.
 
 Behavior contract: a script factory receives `(world, eid, args)` and returns an object whose function values are handlers. Special name `onTick` is called each scripts phase; other names can be invoked via the event router (see below).
 
@@ -585,6 +585,7 @@ You can define additional script phases and/or per-entity phase selection.
 ```js
 import { addScriptTickPhase, ScriptPhase } from './scriptsPhasesExtra.js'
 import { composeScheduler } from './systems.js'
+import { PHASE_SCRIPTS } from './scripts.js'
 
 // Add early/late phases that call optional hooks on handlers
 addScriptTickPhase('scripts:early', 'onTickEarly')
@@ -596,6 +597,8 @@ world.setScheduler(composeScheduler('scripts:early', PHASE_SCRIPTS, 'scripts:lat
 // Per-entity: select which phase a script should tick in
 world.add(e, ScriptPhase, { tick: 'scripts:early' })
 ```
+
+Because handler attachment happens during the main `scripts` phase, hooks in an earlier phase (`scripts:early`) begin firing on the tick after a script is first attached.
 
 Exceptions in extra phases are also recorded in `ScriptMeta.lastError`.
 
@@ -647,7 +650,7 @@ import { installScriptsAPI, PHASE_SCRIPTS, addScriptTickPhase, makeScriptRouter 
 ## 📦 Install
 
 ```bash
-git submodule add https://github.com/PJensen/ECS.js.git lib/ecs-js
+git submodule add https://github.com/pjensen/ecs-js.git lib/ecs-js
 git commit -m "Add ecs-js as submodule"
 ```
 
