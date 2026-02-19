@@ -1,7 +1,7 @@
 {
   "name": "@pjensen/ecs-js",
-  "version": "0.1.1",
-  "license": "SEE LICENSE IN LICENSE",
+  "version": "0.1.2",
+  "license": "LicenseRef-HSSL-1.2",
   "exports": {
     ".": "./index.js",
     "./index": "./index.js",
@@ -32,22 +32,6 @@
   "tasks": {
     "lint": "deno lint --ignore=dist,tests --rules-exclude=no-slow-types",
     "test": "deno test --allow-read tests/",
-    "check": "deno check index.js tests/*.mjs",
-    "dry-publish": "deno publish --dry-run"
-  },
-  "publish": {
-    "include": [
-      "README.md",
-      "LICENSE",
-      "*.js",
-      "adapters/*.js",
-      "ecs.d.ts"
-    ],
-    "exclude": [
-      "demo/",
-      "dist/",
-      "tests/",
-      ".github/"
-    ]
+    "check": "deno check index.js tests/*.mjs"
   }
 }

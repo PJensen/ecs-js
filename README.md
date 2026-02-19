@@ -12,16 +12,14 @@ Suitable for both discrete-event and real-time updates.
 
 ---
 
-## 📦 Install (Deno / JSR)
-
-```sh
-deno add jsr:@pjensen/ecs-js
-```
+## 📦 Use with Deno (Git tag)
 
 ```js
-import { World } from 'jsr:@pjensen/ecs-js'
-import { defineComponent } from 'jsr:@pjensen/ecs-js/core'
+import { World } from 'https://raw.githubusercontent.com/pjensen/ecs-js/v0.1.2/index.js'
+import { defineComponent } from 'https://raw.githubusercontent.com/pjensen/ecs-js/v0.1.2/core.js'
 ```
+
+If you are working inside this repository directly, import from `./index.js` and `./core.js`.
 
 ---
 
@@ -34,7 +32,7 @@ import { defineComponent } from 'jsr:@pjensen/ecs-js/core'
  Define your own lifecycle phases (`"intent"`, `"resolve"`, `"effects"`, etc.).
 
 **Deterministic**
-	Built-in seeded RNG (`mulberry32`) ensures reproducible runs. See `rng.js` helpers or import from `jsr:@pjensen/ecs-js`.
+	Built-in seeded RNG (`mulberry32`) ensures reproducible runs. See `rng.js` helpers.
 
 **Deferred-safe**
  Structural mutations during iteration are automatically queued.
@@ -55,7 +53,7 @@ import { defineComponent } from 'jsr:@pjensen/ecs-js/core'
 ### World
 
 ```js
-import { World } from 'jsr:@pjensen/ecs-js/core'
+import { World } from './core.js'
 const world = new World({ seed: 12345, store: 'map' })
 ```
 
@@ -65,7 +63,7 @@ Each call to `world.tick(dt)` advances the simulation deterministically by one s
 When you need to wire multiple phases, installers, or strict/debug tooling, reach for the fluent builder:
 
 ```js
-import { World, PHASE_SCRIPTS } from 'jsr:@pjensen/ecs-js'
+import { World, PHASE_SCRIPTS } from './index.js'
 
 const world = World.create({ seed: 9 })
   .useSoA()
@@ -86,7 +84,7 @@ const world = World.create({ seed: 9 })
 ### Components
 
 ```js
-import { defineComponent, defineTag } from 'jsr:@pjensen/ecs-js/core'
+import { defineComponent, defineTag } from './core.js'
 
 export const Position = defineComponent('Position', { x: 0, y: 0 })
 export const Velocity = defineComponent('Velocity', { dx: 0, dy: 0 })
@@ -99,7 +97,7 @@ Tags are zero-data markers for boolean traits or group membership.
 Prefer the fluent builder when you want validation or want to flip between data components and tags without changing call sites:
 
 ```js
-import { Component } from 'jsr:@pjensen/ecs-js/core'
+import { Component } from './core.js'
 
 export const Velocity = Component('Velocity')
   .defaults({ dx: 0, dy: 0 })
