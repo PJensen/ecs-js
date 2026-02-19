@@ -1,6 +1,7 @@
 {
   "name": "@pjensen/ecs-js",
   "version": "0.1.1",
+  "license": "SEE LICENSE IN LICENSE",
   "exports": {
     ".": "./index.js",
     "./index": "./index.js",
