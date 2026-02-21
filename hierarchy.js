@@ -79,6 +79,10 @@ export function attach(world, child, parent, opts = {}){
   world.add(child, Sibling, { parent, prev:0, next:0, index:0 });
 
   const p = world.get(parent, Parent);
+
+  /* ---- Heal stale first/last pointers left by destroyed (recycled) children ---- */
+  _healStalePointers(world, parent, p);
+
   let before = (opts.before|0) || 0;
   let after  = (opts.after|0)  || 0;
   let useIndex = (typeof opts.index === 'number') ? (opts.index|0) : null;
@@ -162,19 +166,65 @@ function _bumpIndices(world, parent, startIdx, delta){
 /** @private */
 function _clearSibling(world, id){ if (world.has(id, Sibling)) world.set(id, Sibling, { parent:0, prev:0, next:0, index:0 }); }
 
+/** Heal parent's first/last pointers when they reference dead (recycled) entities.
+ * This happens when world.destroy() recycles an entity ID without calling detach().
+ * @private @param {World} world @param {number} parentId @param {object} p - Parent record
+ */
+function _healStalePointers(world, parentId, p) {
+  let dirty = false;
+  // Walk the live chain once and rebuild first/last/count from what's actually reachable
+  let first = 0, last = 0, count = 0;
+  const seen = new Set();
+  let c = p.first | 0;
+  while (c && !seen.has(c)) {
+    const s = world.get(c, Sibling);
+    if (!s || s.parent !== parentId) break;      // stale or foreign node — stop
+    seen.add(c);
+    if (!first) first = c;
+    last = c;
+    count++;
+    c = s.next | 0;
+  }
+  if (first !== (p.first | 0) || last !== (p.last | 0) || count !== (p.count | 0)) {
+    world.set(parentId, Parent, { first, last, count });
+    dirty = true;
+  }
+  // Fix prev pointer of the first node (should be 0)
+  if (first) {
+    const fs = world.get(first, Sibling);
+    if (fs && (fs.prev | 0) !== 0) { world.set(first, Sibling, { prev: 0 }); }
+  }
+  // Fix next pointer of the last node (should be 0)
+  if (last) {
+    const ls = world.get(last, Sibling);
+    if (ls && (ls.next | 0) !== 0) { world.set(last, Sibling, { next: 0 }); }
+  }
+}
+
 /* ---- PATCH: iterative destroySubtree to avoid recursion depth issues ---- */
 /** Destroy a node and all descendants (post-order) iteratively to avoid deep recursion.
+ * Guards against dead/recycled entity IDs and detaches children before destroying.
  * @param {World} world @param {number} root
  */
 export function destroySubtree(world, root){
+  if (!world.isAlive(root)) return;
   const stack = [root];
   const order = [];
+  const seen = new Set();
   while (stack.length){
     const id = stack.pop();
+    if (seen.has(id) || !world.isAlive(id)) continue;
+    seen.add(id);
     order.push(id);
     for (const c of children(world, id)) stack.push(c);
   }
-  for (let i = order.length - 1; i >= 0; i--) world.destroy(order[i]);
+  // Destroy in reverse (leaves first) — detach to keep linked lists clean
+  for (let i = order.length - 1; i >= 0; i--) {
+    const id = order[i];
+    if (!world.isAlive(id)) continue;
+    if (isChild(world, id)) try { detach(world, id, { remove: true }); } catch {}
+    world.destroy(id);
+  }
 }
 
 /** Move a child under a new parent with optional ordering. @param {World} world @param {number} child @param {number} newParent @param {{before?:number, after?:number, index?:number}} [opts] */
