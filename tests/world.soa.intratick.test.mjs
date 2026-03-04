@@ -43,7 +43,7 @@ test('SoA direct mutation is visible to later phases in the same tick', (t) => {
   t.after(clearSystems);
 });
 
-test('world.set() is deferred during tick and NOT visible to later phases', (t) => {
+test('world.set() is immediate during tick and visible to later phases', (t) => {
   for (const store of ['soa', 'map']) {
     clearSystems();
     const world = new World({ store });
@@ -53,14 +53,14 @@ test('world.set() is deferred during tick and NOT visible to later phases', (t) 
 
     let posAfterMove = null;
 
-    // Phase 1: move — use world.set() (deferred in non-strict mode)
+    // Phase 1: move — use world.set() (now immediate)
     function moveSystem(w, dt) {
       for (const [id, pos, vel] of w.query(Position, Velocity)) {
         w.set(id, Position, { x: pos.x + vel.dx * dt, y: pos.y + vel.dy * dt });
       }
     }
 
-    // Phase 2: read — check what Position looks like
+    // Phase 2: read — should see the updated values
     function readSystem(w, dt) {
       for (const [id, pos] of w.query(Position)) {
         posAfterMove = { x: pos.x, y: pos.y };
@@ -73,14 +73,9 @@ test('world.set() is deferred during tick and NOT visible to later phases', (t) 
 
     world.tick(1);
 
-    // world.set() was deferred, so readSystem sees OLD values
-    assert.equal(posAfterMove.x, 0, `[${store}] world.set() should be deferred; old value visible`);
-    assert.equal(posAfterMove.y, 0, `[${store}] world.set() should be deferred; old value visible`);
-
-    // After tick completes, deferred set is flushed
-    const pos = world.get(e, Position);
-    assert.equal(pos.x, 10, `[${store}] deferred set should be applied after tick`);
-    assert.equal(pos.y, 5, `[${store}] deferred set should be applied after tick`);
+    // world.set() is now immediate; readSystem sees the NEW values
+    assert.equal(posAfterMove.x, 10, `[${store}] world.set() should be immediate; new value visible`);
+    assert.equal(posAfterMove.y, 5, `[${store}] world.set() should be immediate; new value visible`);
   }
   t.after(clearSystems);
 });

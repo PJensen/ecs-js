@@ -453,16 +453,6 @@ export class World {
    * @returns {object|null}
    */
   set(id, Comp, patch) {
-    if (this._inTick) {
-      if (this.strict) {
-        const outcome = this._handleStrictDuringTick('set', [id, Comp, patch], () => {
-          this.command(['set', id, Comp, patch]);
-        });
-        if (outcome) return null;
-      } else {
-        this.command(['set', id, Comp, patch]); return null;
-      }
-    }
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('set: entity lacks component');
     const next = Object.assign({}, rec, patch);
@@ -480,16 +470,6 @@ export class World {
    * @returns {object|null}
    */
   mutate(id, Comp, fn) {
-    if (this._inTick) {
-      if (this.strict) {
-        const outcome = this._handleStrictDuringTick('mutate', [id, Comp, fn], () => {
-          this.command(['mutate', id, Comp, fn]);
-        });
-        if (outcome) return null;
-      } else {
-        this.command(['mutate', id, Comp, fn]); return null;
-      }
-    }
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('mutate: entity lacks component');
     fn(rec);
