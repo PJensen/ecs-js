@@ -127,8 +127,9 @@ export function defineTag(name) {
  *
  * Contract:
  * - Entity ids are positive integers; 0 is reserved as a "null" sentinel.
- * - Structural mutations (create/destroy/add/remove) are deferred if performed inside a tick
- *   unless strict mode throws. Mutations via set/mutate mark components changed.
+ * - Create/add/set/mutate are immediate, even during a tick.
+ * - Destructive structural mutations (destroy/remove) are deferred if performed inside a tick
+ *   unless strict mode throws. Use addDeferred() to explicitly queue a component add.
  * - Query caching: a positive set of entity ids per unique component set is cached and
  *   invalidated on any structural change.
  */
@@ -151,7 +152,7 @@ export class World {
     this._changed = new Map();  // Map<Comp.key, Set<id>>
     this._components = new Map(); // Map<Comp.key, Comp>
 
-    // command queue for deferred structural mutations
+    // command queue for deferred destructive mutations and explicit queued ops
     this._cmd = [];
 
     // entity bookkeeping
@@ -345,6 +346,22 @@ export class World {
     this._invalidateCaches();
     return true;
   }
+  /** Destroy an entity immediately, bypassing intratick deferral/strict checks.
+   * Use sparingly for helper-local invariants and temporary entities.
+   * @param {number} id
+   * @returns {boolean}
+   */
+  destroyImmediate(id) {
+    if (!this.alive.has(id)) return false;
+    this._dropQueuedEntityOps(id);
+    const prev = this._inTick;
+    this._inTick = false;
+    try {
+      return this.destroy(id) === true;
+    } finally {
+      this._inTick = prev;
+    }
+  }
   /** Check if an entity id is currently alive.
    * @param {number} id
    * @returns {boolean}
@@ -369,27 +386,79 @@ export class World {
     this._changed.get(ckey).add(id);
   }
 
+  _dropQueuedComponentOps(id, Comp) {
+    if (!this._cmd.length) return 0;
+    const key = Comp?.key;
+    if (!key) return 0;
+
+    let write = 0;
+    let dropped = 0;
+    for (let i = 0; i < this._cmd.length; i++) {
+      const op = this._cmd[i];
+      if (!Array.isArray(op)) {
+        this._cmd[write++] = op;
+        continue;
+      }
+
+      const kind = op[0];
+      if (kind !== 'add' && kind !== 'remove' && kind !== 'set' && kind !== 'mutate') {
+        this._cmd[write++] = op;
+        continue;
+      }
+      if (op[1] !== id || op[2]?.key !== key) {
+        this._cmd[write++] = op;
+        continue;
+      }
+
+      dropped++;
+    }
+
+    if (dropped) this._cmd.length = write;
+    return dropped;
+  }
+
+  _dropQueuedEntityOps(id) {
+    if (!this._cmd.length) return 0;
+
+    let write = 0;
+    let dropped = 0;
+    for (let i = 0; i < this._cmd.length; i++) {
+      const op = this._cmd[i];
+      if (!Array.isArray(op)) {
+        this._cmd[write++] = op;
+        continue;
+      }
+
+      const kind = op[0];
+      if (kind !== 'destroy' && kind !== 'add' && kind !== 'remove' && kind !== 'set' && kind !== 'mutate') {
+        this._cmd[write++] = op;
+        continue;
+      }
+      if (op[1] !== id) {
+        this._cmd[write++] = op;
+        continue;
+      }
+
+      dropped++;
+    }
+
+    if (dropped) this._cmd.length = write;
+    return dropped;
+  }
+
   /**
    * Add a component record to an entity (structural change).
    * Deep-clones defaults and provided data; validates if component has a validator.
-   * Deferred if called inside {@link World#tick} unless strict mode is enabled.
+   * Immediate even if called inside {@link World#tick}. To queue an add for the
+   * post-scheduler flush, use {@link World#addDeferred}.
    * @param {number} id
    * @param {Component} Comp
    * @param {object} [data]
-   * @returns {object|null} The stored record (or null if deferred)
+   * @returns {object} The stored record
    */
   add(id, Comp, data) {
     if (!this.alive.has(id)) throw new Error('add: entity not alive');
-    if (this._inTick) {
-      if (this.strict) {
-        const outcome = this._handleStrictDuringTick('add', [id, Comp, data], () => {
-          this.command(['add', id, Comp, data]);
-        });
-        if (outcome) return null;
-      } else {
-        this.command(['add', id, Comp, data]); return null;
-      }
-    }
+    this._dropQueuedComponentOps(id, Comp);
     const rec = Object.assign({}, deepClone(Comp.defaults), deepClone(data || {}));
     assertNoFunctions(rec, Comp.name, '');
     if (typeof Comp.validate === 'function' && !Comp.validate(rec)) throw new Error(`Validation failed for component ${Comp.name}`);
@@ -397,6 +466,20 @@ export class World {
     this._markChanged(Comp.key, id);
     this._invalidateCaches();
     return rec;
+  }
+
+  /** Queue a component add for the post-scheduler flush / next-tick readers.
+   * Useful when you explicitly do not want later systems in the current tick to
+   * observe the newly attached component.
+   * @param {number} id
+   * @param {Component} Comp
+   * @param {object} [data]
+   * @returns {this}
+   */
+  addDeferred(id, Comp, data) {
+    if (!this.alive.has(id)) throw new Error('addDeferred: entity not alive');
+    this.command(['add', id, Comp, data]);
+    return this;
   }
 
   /** Get a component record or null if absent.
@@ -445,16 +528,34 @@ export class World {
     return ok;
   }
 
+  /** Remove a component immediately, bypassing intratick deferral/strict checks.
+   * Use sparingly for helper-local invariants where synchronous absence matters.
+   * @param {number} id
+   * @param {Component} Comp
+   * @returns {boolean}
+   */
+  removeImmediate(id, Comp) {
+    this._dropQueuedComponentOps(id, Comp);
+    const prev = this._inTick;
+    this._inTick = false;
+    try {
+      return this.remove(id, Comp) === true;
+    } finally {
+      this._inTick = prev;
+    }
+  }
+
   /** Patch-assign fields on a component record (non-structural change). Validates before assignment.
-   * Deferred during tick unless strict.
+   * Immediate during tick and visible to later phases in the same step.
    * @param {number} id
    * @param {Component} Comp
    * @param {object} patch
-   * @returns {object|null}
+   * @returns {object}
    */
   set(id, Comp, patch) {
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('set: entity lacks component');
+    this._dropQueuedComponentOps(id, Comp);
     const next = Object.assign({}, rec, patch);
     assertNoFunctions(next, Comp.name, '');
     if (typeof Comp.validate === 'function' && !Comp.validate(next)) throw new Error(`Validation failed for component ${Comp.name}`);
@@ -467,11 +568,12 @@ export class World {
    * @param {number} id
    * @param {Component} Comp
    * @param {(rec:object)=>void} fn
-   * @returns {object|null}
+   * @returns {object}
    */
   mutate(id, Comp, fn) {
     const rec = this.get(id, Comp);
     if (!rec) throw new Error('mutate: entity lacks component');
+    this._dropQueuedComponentOps(id, Comp);
     fn(rec);
     assertNoFunctions(rec, Comp.name, '');
     this._markChanged(Comp.key, id);

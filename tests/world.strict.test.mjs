@@ -11,10 +11,11 @@ test('pendingOps exposes a snapshot of queued commands', () => {
   assert.deepEqual(world.pendingOps(), [['destroy', 1]], 'snapshot should not mutate internal queue');
 });
 
-test('strict handler can defer structural operations', () => {
+test('strict handler can defer destructive operations', () => {
   const Position = defineComponent('Position', { x: 0 });
   const world = new World({ strict: true });
   const eid = world.create();
+  world.add(eid, Position, { x: 1 });
   const events = [];
 
   world.onStrictError(({ op, args, defer, error }) => {
@@ -23,17 +24,38 @@ test('strict handler can defer structural operations', () => {
   });
 
   world.setScheduler((w) => {
-    w.add(eid, Position, { x: 42 });
+    w.remove(eid, Position);
   });
 
   world.tick(1);
 
   const rec = world.get(eid, Position);
-  assert.ok(rec, 'component should be attached after deferred execution');
-  assert.equal(rec.x, 42);
+  assert.equal(rec, null, 'component should be removed after deferred execution');
   assert.equal(events.length, 1);
-  assert.equal(events[0].op, 'add');
+  assert.equal(events[0].op, 'remove');
   assert.match(events[0].message, /structural mutation during tick/);
+});
+
+test('world.add() stays immediate during tick in strict worlds', () => {
+  const Position = defineComponent('Position', { x: 0 });
+  const world = new World({ strict: true });
+  const eid = world.create();
+  const events = [];
+
+  world.onStrictError(({ op }) => {
+    events.push(op);
+  });
+
+  world.setScheduler((w) => {
+    const rec = w.add(eid, Position, { x: 42 });
+    assert.equal(rec.x, 42);
+    assert.equal(w.get(eid, Position).x, 42, 'add should be visible immediately inside the scheduler');
+  });
+
+  world.tick(1);
+
+  assert.equal(world.get(eid, Position).x, 42);
+  assert.deepEqual(events, [], 'add should not go through the strict handler');
 });
 
 test('strict handler may ignore operations', () => {

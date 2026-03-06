@@ -76,7 +76,7 @@ export function attach(world, child, parent, opts = {}){
     detach(world, child);
   }
 
-  world.add(child, Sibling, { parent, prev:0, next:0, index:0 });
+  if (!world.has(child, Sibling)) world.add(child, Sibling, { parent, prev:0, next:0, index:0 });
 
   const p = world.get(parent, Parent);
 
@@ -137,7 +137,7 @@ export function detach(world, child, opts = {}){
 
   _bumpIndices(world, parent, idx+1, -1);
   world.set(parent, Parent, { count: Math.max(0, p.count - 1) });
-  if (opts.remove) world.remove(child, Sibling);
+  if (opts.remove) world.removeImmediate(child, Sibling);
   else world.set(child, Sibling, { parent:0, prev:0, next:0, index:0 });
   return child;
 }

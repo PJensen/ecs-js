@@ -5,7 +5,8 @@
 ## Principles for agents
 
 ### Why ecs-js works for agents
-- **Deterministic core**: seeded RNG (`mulberry32`) plus deferred-safe mutations mean you can replay every tick exactly. Always pass a seed into `new World({ seed })` so your reasoning remains reproducible.
+- **Deterministic core**: seeded RNG (`mulberry32`) plus immediate intratick adds and deferred destructive mutations mean you can replay every tick exactly. Always pass a seed into `new World({ seed })` so your reasoning remains reproducible.
+- **Sharp escape hatches exist**: `removeImmediate()` / `destroyImmediate()` bypass intratick deferral for helper-local invariants. Use them rarely and deliberately; they can invalidate active iterators.
 - **Caller-driven ticks**: you own the loop. Drive discrete steps (`world.tick(1)`) while inspecting state, or stream `dt` from real sensors for real-time sims. No hidden scheduler.
 - **Phase-agnostic scripts**: declare whatever phases your workflow needs (`intent → resolve → effects`, `sense → plan → act`, etc.) and pin systems explicitly so an agent can narrate the order of operations.
 - **Pure logic, zero IO**: there is no rendering, DOM, or async timing, so agents can manipulate worlds from CLIs, sandboxes, notebooks, or IDE workspaces without side effects.

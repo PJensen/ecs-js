@@ -80,6 +80,35 @@ test('world.set() is immediate during tick and visible to later phases', (t) => 
   t.after(clearSystems);
 });
 
+test('world.add() is immediate during tick and visible to later phases', (t) => {
+  for (const store of ['soa', 'map']) {
+    clearSystems();
+    const world = new World({ store });
+    const e = world.create();
+
+    let posAfterAttach = null;
+
+    function attachSystem(w) {
+      w.add(e, Position, { x: 7, y: 9 });
+    }
+
+    function readSystem(w) {
+      posAfterAttach = w.get(e, Position);
+    }
+
+    world.system(attachSystem, 'attach');
+    world.system(readSystem, 'read');
+    world.setScheduler(composeScheduler('attach', 'read'));
+
+    world.tick(1);
+
+    assert.ok(posAfterAttach, `[${store}] Position should exist in the read phase`);
+    assert.equal(posAfterAttach.x, 7, `[${store}] world.add() should be visible later in the same tick`);
+    assert.equal(posAfterAttach.y, 9, `[${store}] world.add() should be visible later in the same tick`);
+  }
+  t.after(clearSystems);
+});
+
 test('SoA view object properties write through to backing arrays', () => {
   const world = new World({ store: 'soa' });
   const e = world.create();

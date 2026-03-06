@@ -93,15 +93,18 @@ export class World {
 
   create(): number;
   destroy(id: number): boolean | null;
+  destroyImmediate(id: number): boolean;
   isAlive(id: number): boolean;
 
-  add<T>(id: number, component: Component<T>, values?: Partial<T>): T | null;
-  set<T>(id: number, component: Component<T>, patch: Partial<T>): T | null;
-  mutate<T>(id: number, component: Component<T>, fn: (value: T) => void): T | null;
+  add<T>(id: number, component: Component<T>, values?: Partial<T>): T;
+  addDeferred<T>(id: number, component: Component<T>, values?: Partial<T>): this;
+  set<T>(id: number, component: Component<T>, patch: Partial<T>): T;
+  mutate<T>(id: number, component: Component<T>, fn: (value: T) => void): T;
   get<T>(id: number, component: Component<T>): T | null;
   getInstance<T>(id: number, component: Component<T>): T | null;
   has(id: number, component: Component<any>): boolean;
   remove(id: number, component: Component<any>): boolean | null;
+  removeImmediate(id: number, component: Component<any>): boolean;
 
   query<T extends any[]>(...terms: [...ComponentTerm[], object?]): QueryResult<T>;
   defineQuery<T extends any[]>(...terms: [...ComponentTerm[], object?]): QueryHandle<T>;

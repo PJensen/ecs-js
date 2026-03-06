@@ -62,16 +62,16 @@ test('onStrictError with non-function non-null throws', () => {
   assert.throws(() => world.onStrictError(42), Error, /handler must be a function or null/);
 });
 
-test('strict mode mid-tick mutation without handler is caught by tick', () => {
+test('strict mode mid-tick destructive mutation without handler is caught by tick', () => {
   const world = new World({ strict: true });
   const eid = world.create();
+  world.add(eid, Position, { x: 1 });
   world.setScheduler((w) => {
-    w.add(eid, Position, { x: 99 });
+    w.remove(eid, Position);
   });
   // tick catches the scheduler error internally via logError
   world.tick(1);
-  // The add should NOT have succeeded — strict threw, tick caught it
-  assert.equal(world.has(eid, Position), false, 'mutation should not apply when strict throws');
+  assert.equal(world.has(eid, Position), true, 'remove should not apply when strict throws');
 });
 
 // No-functions-in-component-data guard

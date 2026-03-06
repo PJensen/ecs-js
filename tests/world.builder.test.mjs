@@ -32,7 +32,7 @@ test('World builder configures world, scheduler, and scripts API', () => {
   assert.deepEqual(calls[0], ['alpha', 1]);
   const meta = world.get(eid, ScriptMeta);
   assert.ok(world.has(eid, ScriptMeta));
-  assert.equal(meta.invoked, 0);
+  assert.equal(meta.invoked, 1);
   assert.equal(meta.version, world.step);
   assert.equal(scriptRuns, 1);
 });

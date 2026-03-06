@@ -34,8 +34,8 @@ If you are working inside this repository directly, import from `./index.js` and
 **Deterministic**
 	Built-in seeded RNG (`mulberry32`) ensures reproducible runs. See `rng.js` helpers.
 
-**Deferred-safe**
- Structural mutations during iteration are automatically queued.
+**Immediate adds, deferred destruction**
+ `create`, `add`, `set`, and `mutate` happen now; `remove` and `destroy` queue during ticks unless you step outside tick context yourself.
 
 **Store-flexible**
  `'map'` for clarity, `'soa'` for raw performance.
@@ -59,6 +59,8 @@ const world = new World({ seed: 12345, store: 'map' })
 
 A `World` manages all entities, components, and systems.
 Each call to `world.tick(dt)` advances the simulation deterministically by one step.
+During a tick, `world.add()` is immediately visible to later systems/phases, while `world.remove()` and `world.destroy()` still defer to the post-scheduler flush.
+For the rare helper that must synchronously strip a component or discard a temporary entity, use `world.removeImmediate()` / `world.destroyImmediate()` and document why; they bypass the safety rail.
 
 When you need to wire multiple phases, installers, or strict/debug tooling, reach for the fluent builder:
 
@@ -118,6 +120,15 @@ world.add(e, Velocity, { dx: 1, dy: 0 })
 ```
 
 Entities are lightweight IDs with dynamically attached components.
+
+If you want to queue an add instead of making it visible to later work in the same tick, use `world.addDeferred(...)`.
+
+```js
+world.add(actor, MoveIntent, { dx: 1, dy: 0 })      // visible later this tick
+world.addDeferred(actor, Stunned, { turns: 1 })     // queued for post-scheduler flush
+```
+
+`removeImmediate()` and `destroyImmediate()` are intentionally sharp tools. Prefer ordinary `remove()` / `destroy()` in systems; immediate destruction can invalidate active iterators because positive queries snapshot membership.
 
 ---
 
