@@ -277,6 +277,39 @@ If you need zero debug overhead in production loops, keep `world.debug.inspect(.
 
 ---
 
+## 🔭 Virtual Components
+
+Virtual components are memoized computed views of world state. They are derived on demand and cached for the duration of the current tick — invisible to queries and archetypes, with zero storage overhead.
+
+```js
+import { createVirtualRegistry } from 'ecs-js/virtuals.js'
+
+const virtuals = createVirtualRegistry(world)
+
+// Define a named virtual: compute once per entity per tick
+const NetWorth = virtuals.define('NetWorth', (world, id) => {
+  const port = world.get(id, Portfolio)
+  if (!port) return null
+  let total = port.cash
+  for (const [, holding] of world.query(Holding)) {
+    const asset = world.get(holding.assetId, Asset)
+    if (asset) total += holding.shares * asset.price
+  }
+  return total
+})
+
+// Read — recomputes only when world.step has advanced
+const worth = virtuals.get(traderId, NetWorth)
+
+// Invalidate at end of tick (or selectively)
+virtuals.clear()          // all virtuals
+virtuals.clear(NetWorth)  // one virtual
+```
+
+Multiple independent registries can coexist on the same world. Virtuals are useful for expensive derived values (path costs, aggregate stats, risk scores) that several systems want to read in the same tick without recomputing.
+
+---
+
 ## 🌳 Hierarchies
 
 ```js
@@ -753,6 +786,7 @@ directly in the browser:
 | **serialization.js**      | Snapshot, registry, deserialization                       |
 | **crossWorld.js**         | Entity linking across worlds                              |
 | **archetype.js**          | Prefab-style archetypes and reusable spawn logic          |
+| **virtuals.js**           | Memoized computed views cached per tick step              |
 | **rng.js**                | Seeded RNG utilities (mulberry32, helpers)                |
 | **scripts.js**            | First-class scripting (ScriptRef, ScriptMeta, fluent APIs)|
 | **scriptsPhasesExtra.js** | Optional extra script phases and per-entity phase control |
