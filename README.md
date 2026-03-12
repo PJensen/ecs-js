@@ -6,7 +6,7 @@ Designed for two primary use cases: building simulations, and building agent-dri
 
 Suitable for both discrete-event and real-time updates.
 
-`ecs-js` is a minimal, browser-friendly ECS core designed for simulations, roguelikes, and other logic-driven systems that demand determinism and composability, especially when agents need transparent, step-based control.
+`ecs-js` is a minimal, browser-friendly ECS core for any logic-driven simulation that demands determinism and composability — financial modelling, agent-based market systems, game logic, procedural tools, or interactive visualizations — especially when agents or external observers need transparent, step-based control.
 
 [Visit Built-in Demos](https://pjensen.github.io/ecs-js/)
 
@@ -465,7 +465,77 @@ function frame(now) {
 requestAnimationFrame(frame)
 ```
 
-### 3. Serialization Example
+### 3. Financial Simulation
+
+Model assets, portfolios, and market agents as entities. Each tick advances the market deterministically — seeded RNG means any run is fully replayable and diffable.
+
+```js
+import { World, defineComponent, defineTag } from './core.js'
+import { registerSystem, composeScheduler } from './systems.js'
+
+// --- Components ---
+const Asset     = defineComponent('Asset',     { symbol: '', price: 0, volatility: 0.02 })
+const Portfolio = defineComponent('Portfolio', { cash: 10_000, pnl: 0 })
+const Holding   = defineComponent('Holding',  { assetId: 0, shares: 0, costBasis: 0 })
+const Agent     = defineTag('Agent')
+
+// --- Market tick: update prices with seeded random walk ---
+function marketSystem(world) {
+  for (const [id, asset] of world.query(Asset)) {
+    const move = (world.rand() - 0.5) * 2 * asset.volatility
+    world.set(id, Asset, { price: Math.max(0.01, asset.price * (1 + move)) })
+  }
+}
+
+// --- P&L system: mark portfolios to market ---
+function pnlSystem(world) {
+  for (const [id, portfolio] of world.query(Portfolio, Agent)) {
+    let marketValue = portfolio.cash
+    for (const [hid, holding] of world.query(Holding)) {
+      if (!world.isAlive(holding.assetId)) continue
+      const asset = world.get(holding.assetId, Asset)
+      marketValue += holding.shares * asset.price
+    }
+    world.set(id, Portfolio, { pnl: marketValue - 10_000 })
+  }
+}
+
+// --- Setup ---
+const world = new World({ seed: 42 })
+registerSystem(marketSystem, 'update')
+registerSystem(pnlSystem,    'update')
+world.setScheduler(composeScheduler('update'))
+
+// Create two assets
+const aapl = world.create()
+world.add(aapl, Asset, { symbol: 'AAPL', price: 182.50, volatility: 0.015 })
+
+const btc = world.create()
+world.add(btc, Asset, { symbol: 'BTC', price: 62_000, volatility: 0.04 })
+
+// Create a portfolio agent that holds both
+const trader = world.create()
+world.add(trader, Portfolio, { cash: 5_000, pnl: 0 })
+world.add(trader, Agent)
+
+const h1 = world.create()
+world.add(h1, Holding, { assetId: aapl, shares: 10, costBasis: 182.50 })
+
+const h2 = world.create()
+world.add(h2, Holding, { assetId: btc, shares: 0.05, costBasis: 62_000 })
+
+// Advance the market 5 ticks — identical results every run (seed: 42)
+for (let i = 0; i < 5; i++) world.tick(1)
+
+const { pnl } = world.get(trader, Portfolio)
+console.log('P&L after 5 ticks:', pnl.toFixed(2))
+```
+
+Because `world.rand()` is seeded, this simulation is deterministic and serializable — snapshot mid-run, restore later, and the market picks up exactly where it left off.
+
+---
+
+### 4. Serialization Example
 
 ```js
 import { World, defineComponent, defineTag } from './core.js'
