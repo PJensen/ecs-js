@@ -1,0 +1,634 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>ecs-js — World3 Macro-Simulation</title>
+<style>
+  :root { color-scheme: dark }
+  html,body { margin:0; background:#0a0c12; color:#e0e8f0; font:14px/1.4 system-ui, sans-serif }
+  #wrap { display:grid; grid-template-columns: 370px 1fr; height:100vh }
+  #ui { padding:14px; border-right:1px solid #1a2030; overflow:auto;
+    background:radial-gradient(circle at 20% 8%, rgba(255,180,60,.12), transparent 40%),
+               radial-gradient(circle at 75% 25%, rgba(80,200,255,.10), transparent 45%),
+               linear-gradient(180deg, #0c1018 0%, #0a0c12 100%);
+  }
+  #ui h1 { font-size:17px; margin:0 0 4px; letter-spacing:-0.01em }
+  p.blurb { margin:0 0 10px; color:#8fa0b0; font-size:12px; line-height:1.4 }
+  .row { margin:10px 0 }
+  label { display:flex; justify-content:space-between; font-size:12px; color:#90a8b8; margin:3px 0 }
+  input[type=range] { width:100%; accent-color:#f0c050 }
+  input[type=range].live { pointer-events:none; accent-color:#50c0f0 }
+  .btns { display:flex; gap:8px; margin:8px 0 4px }
+  button { background:linear-gradient(145deg,#2a3040,#1a2030); color:#c8d8e8; border:1px solid #405060;
+    padding:7px 12px; border-radius:10px; cursor:pointer; box-shadow:0 0 12px #0003 }
+  button.sec { background:#141a24; border-color:#304050; color:#8fa0b0 }
+  #hud { display:grid; grid-template-columns:auto 1fr; gap:3px 10px;
+    font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background:#0c1018; padding:10px; border-radius:10px; border:1px solid #1a2430; color:#a0c8e0 }
+  #log { height:100px; overflow:auto; background:#080c14; border:1px solid #1a2430;
+    border-radius:8px; padding:8px; font:11px/1.5 ui-monospace, monospace; color:#8fa0b0; white-space:pre-wrap }
+  canvas { width:100%; height:100%; display:block; background:#060810 }
+  .section-label { color:#d0b870; font-weight:600; font-size:12px }
+</style>
+<div id="wrap">
+  <div id="ui">
+    <h1>World3 — Limits to Growth</h1>
+    <p class="blurb">A macro-simulation inspired by Meadows et al. (1972). Five interacting sectors —
+      population, industrial capital, food/agriculture, non-renewable resources, and pollution —
+      evolve over a 200-year horizon. Tweak parameters to explore overshoot, collapse, or equilibrium scenarios.</p>
+    <div class="row btns">
+      <button id="play">&#9654; Play</button>
+      <button id="step" class="sec">Step</button>
+      <button id="reset" class="sec">Reset</button>
+    </div>
+
+    <div class="row"><span class="section-label">Live — <span id="yearOut" style="color:#e0e8f0">1900</span> · <b id="statusOut" style="color:#70e080">Growing</b></span></div>
+    <div class="row">
+      <label style="color:#f0c050">Population <span id="popOut">—</span></label>
+      <input id="livePop" type="range" class="live" min="0" max="10" step="0.01" value="0">
+      <label style="color:#50c0f0">Industry <span id="indOut">—</span></label>
+      <input id="liveInd" type="range" class="live" min="0" max="10" step="0.01" value="0">
+      <label style="color:#70e080">Food/cap <span id="foodOut">—</span></label>
+      <input id="liveFood" type="range" class="live" min="0" max="5" step="0.01" value="0">
+      <label style="color:#b0b8c0">Resources <span id="nrOut">—</span></label>
+      <input id="liveNr" type="range" class="live" min="0" max="1" step="0.01" value="0">
+      <label style="color:#f06060">Pollution <span id="pollOut">—</span></label>
+      <input id="livePoll" type="range" class="live" min="0" max="20" step="0.01" value="0">
+    </div>
+
+    <div class="row btns">
+      <button id="randomize" class="sec">&#127922; Randomize</button>
+      <button id="clearGhosts" class="sec">Clear Ghosts</button>
+      <button id="autoRun" class="sec">Auto-Run</button>
+    </div>
+
+    <div class="row">
+      <label>Sim speed (dt years/frame) <span id="dtVal"></span></label>
+      <input id="dt" type="range" min="0.05" max="1.0" step="0.05" value="0.20">
+    </div>
+
+    <div class="row"><span class="section-label">Population</span></div>
+    <div class="row">
+      <label>Initial population (B) <span id="pop0Val"></span></label>
+      <input id="pop0" type="range" min="0.5" max="5.0" step="0.1" value="1.6">
+      <label>Fertility (births/cap/yr) <span id="brVal"></span></label>
+      <input id="br" type="range" min="0.5" max="4.0" step="0.1" value="2.0">
+      <label>Base mortality <span id="drVal"></span></label>
+      <input id="dr" type="range" min="0.1" max="2.0" step="0.1" value="0.5">
+    </div>
+
+    <div class="row"><span class="section-label">Industrial Capital</span></div>
+    <div class="row">
+      <label>Investment fraction <span id="invVal"></span></label>
+      <input id="inv" type="range" min="0.05" max="0.60" step="0.01" value="0.25">
+      <label>Depreciation rate <span id="depVal"></span></label>
+      <input id="dep" type="range" min="0.02" max="0.20" step="0.01" value="0.06">
+      <label>Resource intensity <span id="riVal"></span></label>
+      <input id="ri" type="range" min="0.5" max="6.0" step="0.1" value="1.5">
+    </div>
+
+    <div class="row"><span class="section-label">Agriculture</span></div>
+    <div class="row">
+      <label>Arable land (rel.) <span id="alVal"></span></label>
+      <input id="al" type="range" min="0.5" max="2.0" step="0.1" value="1.0">
+      <label>Ag. investment frac <span id="afVal"></span></label>
+      <input id="af" type="range" min="0.05" max="0.60" step="0.01" value="0.20">
+      <label>Land erosion rate <span id="erVal"></span></label>
+      <input id="er" type="range" min="0.000" max="0.030" step="0.001" value="0.008">
+    </div>
+
+    <div class="row"><span class="section-label">Resources &amp; Pollution</span></div>
+    <div class="row">
+      <label>Initial resources (NR) <span id="nr0Val"></span></label>
+      <input id="nr0" type="range" min="200" max="4000" step="50" value="1200">
+      <label>Pollution absorption <span id="paVal"></span></label>
+      <input id="pa" type="range" min="0.005" max="0.15" step="0.005" value="0.03">
+      <label>Pollution generation <span id="pgVal"></span></label>
+      <input id="pg" type="range" min="0.02" max="0.40" step="0.01" value="0.10">
+    </div>
+
+    <div class="row">
+      <div>Events</div>
+      <div id="log"></div>
+    </div>
+    <div class="row" style="font-size:11px; color:#6a7a8a; line-height:1.3;">
+      Inspired by: Meadows, Meadows, Randers &amp; Behrens, <i>The Limits to Growth</i> (1972).
+      Simplified five-sector model for illustration.
+    </div>
+  </div>
+  <canvas id="cv"></canvas>
+</div>
+<script type="module">
+import {
+  World,
+  defineComponent,
+  defineTag,
+  composeScheduler,
+  createRealtimeRafLoop,
+} from '../index.js';
+
+const DEFAULT_SEED = 0xD00DCAFE >>> 0;
+
+/* ── Components ────────────────────────────────────── */
+const Params = defineComponent('Params', {
+  fertility:2.0, mortality:0.5,
+  investFrac:0.25, depreciation:0.06, resourceIntensity:1.5,
+  arableLand:1.0, agFrac:0.20, erosionRate:0.008,
+  pollAbsorb:0.03, pollGenRate:0.10,
+});
+const Pop    = defineComponent('Pop',    { val:1.6 });           // billions
+const IndCap = defineComponent('IndCap', { val:0.7 });           // index
+const Food   = defineComponent('Food',   { val:1.0, perCap:1 }); // index, per-capita ratio
+const NRes   = defineComponent('NRes',   { val:2000, frac:1 });  // non-renewable resources
+const Poll   = defineComponent('Poll',   { val:0.05 });          // pollution index
+const Land   = defineComponent('Land',   { val:1.0 });           // arable land index
+const Hist   = defineComponent('Hist',   { year:[], pop:[], ind:[], food:[], nr:[], poll:[] });
+const Overshoot = defineTag('Overshoot');
+
+const clamp = (v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+
+/* ── Ghost runs ───────────────────────────────────── */
+// Each ghost: { year:[], pop:[], ind:[], food:[], nr:[], poll:[] }
+const ghosts = [];
+
+/* ── UI wiring ─────────────────────────────────────── */
+const UI = {};
+['dt','pop0','br','dr','inv','dep','ri','al','af','er','nr0','pa','pg'].forEach(k=>{
+  UI[k] = document.getElementById(k);
+});
+const labels = {};
+['dt','pop0','br','dr','inv','dep','ri','al','af','er','nr0','pa','pg'].forEach(k=>{
+  labels[k] = document.getElementById(k+'Val');
+});
+function syncLabels(){
+  for(const k in labels){ const el=UI[k]; if(el) labels[k].textContent=+el.value; }
+}
+for(const k in UI) UI[k].addEventListener('input', syncLabels);
+
+const OUT = {
+  year: document.getElementById('yearOut'),
+  pop: document.getElementById('popOut'),
+  ind: document.getElementById('indOut'),
+  food: document.getElementById('foodOut'),
+  nr: document.getElementById('nrOut'),
+  poll: document.getElementById('pollOut'),
+  status: document.getElementById('statusOut'),
+  log: document.getElementById('log'),
+};
+const LIVE = {
+  pop:  document.getElementById('livePop'),
+  ind:  document.getElementById('liveInd'),
+  food: document.getElementById('liveFood'),
+  nr:   document.getElementById('liveNr'),
+  poll: document.getElementById('livePoll'),
+};
+const CV = (()=>{
+  const cv=document.getElementById('cv');
+  const ctx=cv.getContext('2d');
+  function fit(){ const dpr=devicePixelRatio||1; cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); }
+  addEventListener('resize', fit); fit();
+  return { ctx, cv };
+})();
+
+/* ── Systems ───────────────────────────────────────── */
+
+// Sync slider values into Params each tick
+function syncParams(world, dt){
+  for(const [id, p] of world.query(Params)){
+    p.fertility        = +UI.br.value;
+    p.mortality        = +UI.dr.value;
+    p.investFrac       = +UI.inv.value;
+    p.depreciation     = +UI.dep.value;
+    p.resourceIntensity= +UI.ri.value;
+    p.agFrac           = +UI.af.value;
+    p.erosionRate      = +UI.er.value;
+    p.pollAbsorb       = +UI.pa.value;
+    p.pollGenRate      = +UI.pg.value;
+  }
+}
+
+// Resource depletion — industry consumes NR proportionally
+function resourceSystem(world, dt){
+  for(const [id, p, ind, nr] of world.query(Params, IndCap, NRes)){
+    const usage = p.resourceIntensity * ind.val * dt;
+    nr.val = Math.max(0, nr.val - usage);
+    nr.frac = nr.val / (+UI.nr0.value || 1200);
+  }
+}
+
+// Industrial capital dynamics
+function industrySystem(world, dt){
+  for(const [id, p, pop, ind, nr] of world.query(Params, Pop, IndCap, NRes)){
+    // resource scarcity multiplier: sharp sigmoid — industry crashes when resources run low
+    const resMult = 1 / (1 + Math.exp(-12*(nr.frac - 0.30)));
+    // population drives demand for industrial growth
+    const popDrive = 0.5 + 0.5 * Math.min(pop.val / 3, 2);
+    const investment = p.investFrac * ind.val * resMult * popDrive * dt;
+    const deprec = p.depreciation * ind.val * dt;
+    ind.val = Math.max(0.01, ind.val + investment - deprec);
+  }
+}
+
+// Agriculture / food production
+function foodSystem(world, dt){
+  for(const [id, p, pop, ind, land, food, poll] of world.query(Params, Pop, IndCap, Land, Food, Poll)){
+    // pollution degrades yield
+    const pollMult = 1 / (1 + poll.val * 0.8);
+    // ag capital is a fraction of industrial output
+    const agCap = p.agFrac * ind.val;
+    // yield scaled so initial conditions give food.perCap ≈ 1.1
+    const yield_ = land.val * (1.4 + 2.5 * agCap) * pollMult;
+    food.val = yield_;
+    food.perCap = pop.val > 0 ? yield_ / pop.val : 0;
+    // land erosion accelerates with pollution and population pressure
+    const erosion = p.erosionRate * (1 + poll.val * 0.3 + pop.val * 0.05) * dt;
+    land.val = Math.max(0.05, land.val - erosion);
+  }
+}
+
+// Pollution dynamics
+function pollutionSystem(world, dt){
+  for(const [id, p, pop, ind, poll] of world.query(Params, Pop, IndCap, Poll)){
+    // pollution from industry AND population
+    const generation = (p.pollGenRate * ind.val + 0.02 * pop.val) * dt;
+    const absorption = p.pollAbsorb * poll.val * dt;
+    poll.val = Math.max(0, poll.val + generation - absorption);
+  }
+}
+
+// Population dynamics — birth/death rates modulated by food and pollution
+function populationSystem(world, dt){
+  for(const [id, p, pop, food, poll] of world.query(Params, Pop, Food, Poll)){
+    // food stress: exponential mortality spike when food/cap drops below 1.0
+    const foodStress = food.perCap < 1.0 ? Math.pow(1.0 - food.perCap, 0.6) * 0.8 : 0;
+    // pollution mortality
+    const pollStress = poll.val * 0.02;
+    // births collapse without food — floor at 5% not 20%
+    const birthRate = p.birthRate * clamp(food.perCap, 0.05, 2.0);
+    const deathRate = p.deathRateBase + foodStress + pollStress;
+    const growth = (birthRate - deathRate) * pop.val * dt;
+    pop.val = Math.max(0, pop.val + growth);
+    if(pop.val < 0.01){
+      pop.val = 0;
+      world.emit('collapsed', { year: world.time });
+      loop?.stop();
+      setRunningUi(false);
+      onRunFinished();
+    }
+  }
+}
+
+// Overshoot detection
+function overshootDetector(world, dt){
+  for(const [id, pop, nr, food, poll] of world.query(Pop, NRes, Food, Poll)){
+    const inOvershoot = nr.frac < 0.20 || food.perCap < 0.5 || poll.val > 8;
+    const already = world.has(id, Overshoot);
+    if(inOvershoot && !already){
+      world.add(id, Overshoot, {});
+      const reason = nr.frac < 0.20 ? 'resource depletion' : food.perCap < 0.5 ? 'food crisis' : 'pollution crisis';
+      world.emit('overshoot', { year: world.time, reason });
+    }
+    if(!inOvershoot && already){
+      world.remove(id, Overshoot);
+      world.emit('recovery', { year: world.time });
+    }
+  }
+}
+
+// History recording
+function historySystem(world, dt){
+  for(const [id, pop, ind, food, nr, poll, hist] of world.query(Pop, IndCap, Food, NRes, Poll, Hist)){
+    hist.year.push(world.time);
+    hist.pop.push(pop.val);
+    hist.ind.push(ind.val);
+    hist.food.push(food.perCap);
+    hist.nr.push(nr.frac);
+    hist.poll.push(poll.val);
+    // keep all history — no truncation
+  }
+}
+
+// Render — five separate stacked charts
+function renderSystem(world, dt){
+  const ctx = CV.ctx, W = CV.cv.clientWidth, H = CV.cv.clientHeight;
+  ctx.clearRect(0,0,W,H);
+
+  for(const [id, pop, ind, food, nr, poll, hist] of world.query(Pop, IndCap, Food, NRes, Poll, Hist)){
+    const N = hist.year.length;
+    if(N<2) return;
+
+    const series = [
+      { data:hist.pop,  label:'Population',  unit:'B',  color:'#f0c050', fill:'rgba(240,192,80,0.12)',  current:pop.val },
+      { data:hist.ind,  label:'Industry',    unit:'',   color:'#50c0f0', fill:'rgba(80,192,240,0.10)',  current:ind.val },
+      { data:hist.food, label:'Food / cap',  unit:'',   color:'#70e080', fill:'rgba(112,224,128,0.10)', current:food.perCap },
+      { data:hist.nr,   label:'Resources',   unit:'%',  color:'#b0b8c0', fill:'rgba(176,184,192,0.08)', current:nr.frac },
+      { data:hist.poll, label:'Pollution',    unit:'',   color:'#f06060', fill:'rgba(240,96,96,0.12)',   current:poll.val },
+    ];
+
+    const nCharts = series.length;
+    const pad  = { l:64, r:16, t:10, b:28 };
+    const gap  = 6;
+    const totalH = H - pad.t - pad.b;
+    const chartH = (totalH - gap*(nCharts-1)) / nCharts;
+    const chartW = W - pad.l - pad.r;
+
+    // shared time axis across current run + all ghosts
+    let tmin = hist.year[0], tmax = hist.year[N-1];
+    for(const g of ghosts){
+      if(g.year.length < 2) continue;
+      if(g.year[0] < tmin) tmin = g.year[0];
+      if(g.year[g.year.length-1] > tmax) tmax = g.year[g.year.length-1];
+    }
+    const X = t => pad.l + chartW*(t-tmin)/(tmax-tmin||1);
+
+    // ghost data keys matching series order
+    const ghostKeys = ['pop','ind','food','nr','poll'];
+
+    // find "best" ghost — highest avg(population × food_per_cap), a human-welfare proxy
+    let bestGhostIdx = -1;
+    if(ghosts.length > 0){
+      let bestScore = -1;
+      for(let gi=0; gi<ghosts.length; gi++){
+        const gh = ghosts[gi];
+        const n = gh.pop.length;
+        if(n < 2) continue;
+        let sum = 0;
+        for(let i=0;i<n;i++) sum += gh.pop[i] * Math.min(gh.food[i], 2.0);
+        const score = sum / n;
+        if(score > bestScore){ bestScore = score; bestGhostIdx = gi; }
+      }
+    }
+
+    // --- per-chart rendering ---
+    series.forEach((s, ci)=>{
+      const cy0 = pad.t + ci*(chartH + gap);
+      const gk = ghostKeys[ci];
+
+      // auto-scale: include ghost data in max calculation
+      let rawMax = 0;
+      for(let i=0;i<N;i++) if(s.data[i]>rawMax) rawMax=s.data[i];
+      for(const g of ghosts) for(let i=0;i<g[gk].length;i++) if(g[gk][i]>rawMax) rawMax=g[gk][i];
+      if(s.unit==='%') rawMax = 1;                       // resources is 0..1
+      else rawMax = rawMax < 0.01 ? 1 : rawMax * 1.25;   // 25% headroom
+      const sMax = rawMax;
+
+      const Y = v => cy0 + chartH - chartH*clamp(v/sMax, 0, 1);
+
+      // chart background
+      ctx.fillStyle='#0c1018'; ctx.fillRect(pad.l, cy0, chartW, chartH);
+
+      // horizontal grid (4 divisions)
+      ctx.strokeStyle='#161e2a'; ctx.lineWidth=1;
+      for(let g=0;g<=4;g++){
+        const gy = cy0 + chartH*g/4;
+        ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(pad.l+chartW, gy); ctx.stroke();
+      }
+
+      // --- ghost traces ---
+      for(let gi=0; gi<ghosts.length; gi++){
+        const gh = ghosts[gi];
+        const gN = gh.year.length;
+        if(gN < 2) continue;
+        const isBest = gi === bestGhostIdx;
+        ctx.beginPath();
+        ctx.moveTo(X(gh.year[0]), Y(gh[gk][0]));
+        for(let i=1;i<gN;i++) ctx.lineTo(X(gh.year[i]), Y(gh[gk][i]));
+        if(isBest){
+          ctx.strokeStyle = 'rgba(255,215,80,0.55)';
+          ctx.lineWidth = 2.5;
+          ctx.setLineDash([]);
+        } else {
+          const alpha = Math.max(0.10, 0.35 - gi * 0.04);
+          ctx.strokeStyle = `rgba(160,170,180,${alpha})`;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4,4]);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // filled area
+      ctx.beginPath();
+      ctx.moveTo(X(hist.year[0]), Y(s.data[0]));
+      for(let i=1;i<N;i++) ctx.lineTo(X(hist.year[i]), Y(s.data[i]));
+      ctx.lineTo(X(hist.year[N-1]), cy0+chartH);
+      ctx.lineTo(X(hist.year[0]), cy0+chartH);
+      ctx.closePath();
+      ctx.fillStyle=s.fill; ctx.fill();
+
+      // line
+      ctx.beginPath();
+      ctx.moveTo(X(hist.year[0]), Y(s.data[0]));
+      for(let i=1;i<N;i++) ctx.lineTo(X(hist.year[i]), Y(s.data[i]));
+      ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.stroke();
+
+      // current-value dot
+      const lastX = X(hist.year[N-1]), lastY = Y(s.data[N-1]);
+      ctx.beginPath(); ctx.arc(lastX, lastY, 4, 0, Math.PI*2);
+      ctx.fillStyle=s.color; ctx.fill();
+      ctx.strokeStyle='#0a0c12'; ctx.lineWidth=1.5; ctx.stroke();
+
+      // current value label next to dot
+      ctx.font='bold 12px ui-monospace, monospace'; ctx.textAlign='left'; ctx.fillStyle=s.color;
+      let valText;
+      if(s.unit==='%') valText=(s.current*100).toFixed(0)+'%';
+      else if(s.unit==='B') valText=s.current.toFixed(2)+'B';
+      else valText=s.current.toFixed(2);
+      ctx.fillText(valText, lastX+8, lastY+4);
+
+      // chart title (left)
+      ctx.save();
+      ctx.font='bold 12px system-ui, sans-serif'; ctx.textAlign='right'; ctx.fillStyle=s.color;
+      ctx.fillText(s.label, pad.l-8, cy0+14);
+      ctx.restore();
+
+      // Y axis top/bottom values
+      ctx.font='10px ui-monospace, monospace'; ctx.textAlign='right'; ctx.fillStyle='#506070';
+      if(s.unit==='%'){ ctx.fillText('100%', pad.l-8, cy0+chartH-2); ctx.fillText('0%', pad.l-8, cy0+chartH+0); }
+      else{
+        const topLabel = sMax>=10? sMax.toFixed(0) : sMax.toFixed(1);
+        ctx.fillText(topLabel, pad.l-8, cy0+10);
+        ctx.fillText('0', pad.l-8, cy0+chartH-2);
+      }
+    });
+
+    // --- shared X axis (year ticks on bottom chart) ---
+    const lastChartBottom = pad.t + nCharts*(chartH+gap) - gap;
+    ctx.fillStyle='#607080'; ctx.font='11px ui-monospace, monospace'; ctx.textAlign='center';
+    const yearSpan = tmax-tmin;
+    const step = yearSpan<50?10:yearSpan<120?20:50;
+    for(let yr=Math.ceil(tmin/step)*step; yr<=tmax; yr+=step){
+      const gx = X(yr);
+      // vertical guide across all charts
+      ctx.strokeStyle='#101820'; ctx.lineWidth=1; ctx.setLineDash([3,6]);
+      ctx.beginPath(); ctx.moveTo(gx, pad.t); ctx.lineTo(gx, lastChartBottom); ctx.stroke();
+      ctx.setLineDash([]);
+      // label
+      ctx.fillText(yr.toFixed(0), gx, lastChartBottom+14);
+    }
+
+    // --- HUD update ---
+    OUT.year.textContent = world.time.toFixed(0);
+    OUT.pop.textContent  = pop.val.toFixed(2)+'B';
+    OUT.ind.textContent  = ind.val.toFixed(2);
+    OUT.food.textContent = food.perCap.toFixed(2);
+    OUT.nr.textContent   = (nr.frac*100).toFixed(1)+'%';
+    OUT.poll.textContent = poll.val.toFixed(2);
+
+    // --- live sliders ---
+    LIVE.pop.value  = pop.val;
+    LIVE.ind.value  = ind.val;
+    LIVE.food.value = food.perCap;
+    LIVE.nr.value   = nr.frac;
+    LIVE.poll.value = poll.val;
+
+    const inOver = world.has(id, Overshoot);
+    OUT.status.textContent = inOver ? 'OVERSHOOT' : pop.val<0.5 ? 'COLLAPSED' : 'Growing';
+    OUT.status.style.color = inOver ? '#f09050' : pop.val<0.5 ? '#f06060' : '#70e080';
+
+    // auto-run: end at year 2050
+    if(world.time >= 2050){
+      loop?.stop();
+      setRunningUi(false);
+      onRunFinished();
+    }
+  }
+}
+
+/* ── World factory ─────────────────────────────────── */
+function makeWorld(){
+  const w = new World({ seed: DEFAULT_SEED });
+  const root = w.create();
+
+  const nr0 = +UI.nr0.value || 1200;
+  w.add(root, Params, {
+    birthRate:+UI.br.value, deathRateBase:+UI.dr.value,
+    investFrac:+UI.inv.value, depreciation:+UI.dep.value,
+    resourceIntensity:+UI.ri.value,
+    arableLand:+UI.al.value, agFrac:+UI.af.value, erosionRate:+UI.er.value,
+    pollAbsorb:+UI.pa.value, pollGenRate:+UI.pg.value,
+  });
+  w.add(root, Pop,    { val:+UI.pop0.value });
+  w.add(root, IndCap, { val:0.8 });
+  w.add(root, Food,   { val:1.0, perCap:1.0 });
+  w.add(root, NRes,   { val:nr0, frac:1.0 });
+  w.add(root, Poll,   { val:0.1 });
+  w.add(root, Land,   { val:+UI.al.value });
+  w.add(root, Hist,   { year:[], pop:[], ind:[], food:[], nr:[], poll:[] });
+
+  // start time at 1900
+  w.time = 1900;
+
+  w.on('overshoot', ev=>{
+    OUT.log.innerHTML = `<div style="color:#f09050">Year ${ev.year.toFixed(0)} — OVERSHOOT: ${ev.reason}</div>` + OUT.log.innerHTML;
+  });
+  w.on('collapsed', ev=>{
+    OUT.log.innerHTML = `<div style="color:#f06060">Year ${ev.year.toFixed(0)} — POPULATION EXTINCT</div>` + OUT.log.innerHTML;
+  });
+  w.on('recovery', ev=>{
+    OUT.log.innerHTML = `<div style="color:#70e080">Year ${ev.year.toFixed(0)} — recovery</div>` + OUT.log.innerHTML;
+  });
+
+  w.system(syncParams,        'input');
+  w.system(resourceSystem,    'resources');
+  w.system(industrySystem,    'industry');
+  w.system(foodSystem,        'agriculture');
+  w.system(pollutionSystem,   'pollution');
+  w.system(populationSystem,  'population');
+  w.system(overshootDetector, 'monitor');
+  w.system(historySystem,     'record');
+  w.system(renderSystem,      'render');
+
+  w.setScheduler(composeScheduler('input','resources','industry','agriculture','pollution','population','monitor','record','render'));
+  w.step = ()=> w.tick(+UI.dt.value);
+  return w;
+}
+
+/* ── Controls ──────────────────────────────────────── */
+const playBtn = document.getElementById('play');
+let world = null, loop = null;
+const setRunningUi = running => { playBtn.textContent = running ? '\u23F8 Pause' : '\u25B6 Play'; };
+
+function snapshotGhost(){
+  if(!world) return;
+  for(const [id, hist] of world.query(Hist)){
+    if(hist.year.length < 2) return;
+    ghosts.unshift({
+      year:[...hist.year], pop:[...hist.pop], ind:[...hist.ind],
+      food:[...hist.food], nr:[...hist.nr], poll:[...hist.poll],
+    });
+    // keep at most 8 ghosts
+    if(ghosts.length > 8) ghosts.length = 8;
+  }
+}
+
+function reset(){
+  snapshotGhost();
+  loop?.stop();
+  world = makeWorld();
+  loop = createRealtimeRafLoop({ world });
+  OUT.log.textContent = '';
+  loop.start();
+  setRunningUi(true);
+}
+function step(){ world?.tick(+UI.dt.value); }
+function togglePlay(){
+  if(!loop || !world) return;
+  if(loop.isRunning()){ loop.stop(); setRunningUi(false); }
+  else{ loop.start(); setRunningUi(true); }
+}
+
+function randomizeSliders(){
+  for(const k in UI){
+    if(k === 'dt') continue;
+    const el = UI[k];
+    const lo = +el.min, hi = +el.max, stp = +el.step || 0.01;
+    const range = hi - lo;
+    const raw = lo + Math.random() * range;
+    el.value = (Math.round(raw / stp) * stp).toFixed(
+      stp < 0.01 ? 3 : stp < 0.1 ? 2 : stp < 1 ? 1 : 0
+    );
+  }
+  syncLabels();
+}
+
+/* ── Auto-run ─────────────────────────────────────── */
+let autoRunActive = false;
+let autoRunTimer = null;
+const autoRunBtn = document.getElementById('autoRun');
+
+function autoRunCycle(){
+  randomizeSliders();
+  reset();
+}
+
+function startAutoRun(){
+  autoRunActive = true;
+  autoRunBtn.textContent = 'Stop Auto';
+  autoRunBtn.style.borderColor = '#f0c050';
+  autoRunBtn.style.color = '#f0c050';
+  autoRunCycle();
+}
+
+function stopAutoRun(){
+  autoRunActive = false;
+  clearTimeout(autoRunTimer);
+  autoRunTimer = null;
+  autoRunBtn.textContent = 'Auto-Run';
+  autoRunBtn.style.borderColor = '';
+  autoRunBtn.style.color = '';
+}
+
+// called from populationSystem on collapse or renderSystem when year >= 2100
+function onRunFinished(){
+  if(!autoRunActive) return;
+  autoRunTimer = setTimeout(autoRunCycle, 1500);
+}
+
+playBtn.onclick = togglePlay;
+document.getElementById('step').onclick = ()=>{ if(!loop?.isRunning()) step(); };
+document.getElementById('reset').onclick = reset;
+document.getElementById('randomize').onclick = ()=>{ randomizeSliders(); reset(); };
+document.getElementById('clearGhosts').onclick = ()=>{ ghosts.length = 0; };
+autoRunBtn.onclick = ()=>{ autoRunActive ? stopAutoRun() : startAutoRun(); };
+
+randomizeSliders(); syncLabels(); reset();
+</script>
