@@ -1,0 +1,71 @@
+# Files mentioned by the user:
+
+## Pasted text.txt: /home/pjensen/.codex/attachments/d0cf8451-a8c0-4db2-baa4-95b5adf2b5f2/pasted-text.txt
+
+## My request for Codex:
+next issue, concept pasted. these sort of listener extensions installer gaurds were flooding ecs-js projects with a repeated code pattern; we should address as best as we possibly can. technical memo has details -- if you disagree with any point, please call it out succinctly.
+
+---
+
+PLEASE IMPLEMENT THIS PLAN:
+# World Extensions Lifecycle
+
+## Summary
+Add first-class runtime-only `World` extensions so listener/adaptor setup can be installed once, inspected, and optionally cleaned up without per-project symbol guards.
+
+I agree with the memo’s core direction. Two implementation refinements:
+- Treat `useScripts()` as a built-in named extension per script phase, otherwise repeated anonymous installer closures would still bypass idempotence.
+- Keep extension cleanup synchronous and best-effort; uninstall errors should be logged and not rethrown, matching event/listener resilience.
+
+## Key Changes
+- Add `defineExtension(name, installer, options?)` in `core.js`, exported through `index.js`.
+- Add `World` methods:
+  - `install(extension): this`
+  - `uninstall(extension): boolean`
+  - `hasExtension(extension): boolean`
+  - `extensions(): Array<{ name, key, extension, uninstallable }>`
+- Accept both canonical extension objects and function extensions.
+  - Canonical identity uses `extension.key`, defaulting to `Symbol(name)`.
+  - Function identity uses the function object for migration compatibility.
+- Store extension records in `this._extensions = new Map()` on `World`.
+- Keep extension state runtime-only:
+  - Do not serialize it.
+  - Do not clear it in `World.load(...)` or `applySnapshot(...)`.
+  - Do not reinstall it from snapshots.
+
+## Builder And Scripts
+- Change `WorldBuilder.install(...)` validation to accept function extensions or objects with `install(world)`.
+- Change `WorldBuilder.build()` to call `world.install(extension)` for every collected extension.
+- Update `WorldBuilder.useScripts(options)` to enqueue a named script extension object instead of an anonymous function.
+  - Key scripts by phase, e.g. `Symbol.for('ecs-js:scripts:<phase>')`, so repeated `.useScripts({ phase })` installs once.
+  - Preserve current behavior where `useScripts()` also ensures the scheduler includes the script phase unless `autoPhase === false`.
+- Leave `installScriptsAPI(world, options)` available for compatibility; direct callers can keep using it, but docs should prefer `world.install(...)` / builder `useScripts()` for idempotence.
+
+## Types And Docs
+- Update `ecs.d.ts` with `WorldExtension`, `WorldExtensionInstaller`, `defineExtension`, and the new `World`/`WorldBuilder` methods.
+- Update README:
+  - Replace “installers” language in the builder intro with “extensions”.
+  - Add a “World Extensions” section near Events or Builder usage.
+  - Show listener cleanup via returned disposer.
+  - State that extensions are runtime-only and not serialized.
+  - Mention function-style installers as migration compatibility, with canonical `defineExtension(...)` preferred.
+
+## Test Plan
+- Add focused tests covering:
+  - `defineExtension` rejects empty names and non-function installers.
+  - Direct `world.install(extension)` is idempotent.
+  - Direct `world.install(functionExtension)` is idempotent by function identity.
+  - `hasExtension(...)` and `extensions()` report installed extensions.
+  - `uninstall(...)` runs cleanup and removes event listeners.
+  - Double uninstall returns `false`.
+  - Failed install rethrows and does not mark the extension attached.
+  - Builder duplicate `.install(extension)` runs installer once.
+  - Builder `.useScripts()` duplicate install remains idempotent for the same phase.
+  - Serialized snapshots do not contain extension/install metadata.
+  - `World.load(...)` and `applySnapshot(...)` preserve already-installed extensions.
+
+## Assumptions
+- No async lifecycle support.
+- No dependency ordering, discovery, dependency injection, or phase-aware extension model.
+- No component/entity/system semantics change.
+- No migration of consumer project code in this issue beyond README examples.
