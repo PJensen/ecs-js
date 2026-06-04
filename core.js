@@ -166,6 +166,56 @@ export function defineTag(name) {
 }
 
 /**
+ * Define a named runtime extension for a World.
+ *
+ * Extensions are runtime-only capabilities. They may register listeners,
+ * adapters, diagnostics, or other world-local behavior, and may return a
+ * synchronous cleanup function.
+ * @param {string} name
+ * @param {(world:World)=>(void|Function)} installer
+ * @param {{ key?: any }} [options]
+ * @returns {{ key:any, name:string, install:(world:World)=>(void|Function) }}
+ */
+export function defineExtension(name, installer, options = {}) {
+  if (typeof name !== 'string' || !name) {
+    throw new Error('defineExtension: name must be a non-empty string');
+  }
+  if (typeof installer !== 'function') {
+    throw new Error('defineExtension: installer must be a function');
+  }
+  const key = Object.prototype.hasOwnProperty.call(options, 'key')
+    ? options.key
+    : Symbol(name);
+  return Object.freeze({ key, name, install: installer });
+}
+
+function extensionKey(extension, label = 'install') {
+  if (!extension) throw new Error(`${label}: extension required`);
+  if (typeof extension === 'function') return extension;
+  if (typeof extension === 'object') {
+    if (Object.prototype.hasOwnProperty.call(extension, 'key')) return extension.key;
+    return extension;
+  }
+  throw new Error(`${label}: expected function or extension object`);
+}
+
+function extensionName(extension) {
+  if (typeof extension === 'function') return extension.name || '<anonymous extension>';
+  if (extension && typeof extension === 'object') return String(extension.name || '<anonymous extension>');
+  return '<invalid extension>';
+}
+
+function runExtensionInstaller(extension, world) {
+  if (typeof extension === 'function') return extension(world);
+  if (extension && typeof extension.install === 'function') return extension.install(world);
+  throw new Error('install: expected function or object with install(world)');
+}
+
+function isExtensionLike(extension) {
+  return typeof extension === 'function' || !!(extension && typeof extension === 'object' && typeof extension.install === 'function');
+}
+
+/**
  * ECS World containing entities, component stores, and query engine.
  *
  * Contract:
@@ -194,6 +244,7 @@ export class World {
     this._cache = new Map();    // query positive set cache
     this._changed = new Map();  // Map<Comp.key, Set<id>>
     this._components = new Map(); // Map<Comp.key, Comp>
+    this._extensions = new Map(); // Map<extensionKey, extension record>
 
     // command queue for deferred destructive mutations and explicit queued ops
     this._cmd = [];
@@ -842,6 +893,74 @@ export class World {
     return n;
   }
 
+  /** ===== Extensions ===== */
+  /** Attach a runtime extension once.
+   * @param {Function|{ key?:any, name?:string, install:(world:World)=>(void|Function) }} extension
+   * @returns {this}
+   */
+  install(extension) {
+    const key = extensionKey(extension, 'install');
+    if (this._extensions.has(key)) return this;
+
+    const name = extensionName(extension);
+    let cleanup = null;
+    try {
+      const result = runExtensionInstaller(extension, this);
+      cleanup = typeof result === 'function' ? result : null;
+    } catch (e) {
+      logError(`[ecs] extension "${name}" failed to install`, e);
+      throw e;
+    }
+
+    this._extensions.set(key, {
+      key,
+      name,
+      extension,
+      uninstall: cleanup
+    });
+    return this;
+  }
+
+  /** Remove a runtime extension, invoking its cleanup if one was returned.
+   * @param {Function|{ key?:any, name?:string, install?:Function }} extension
+   * @returns {boolean}
+   */
+  uninstall(extension) {
+    const key = extensionKey(extension, 'uninstall');
+    const rec = this._extensions.get(key);
+    if (!rec) return false;
+
+    this._extensions.delete(key);
+    if (typeof rec.uninstall === 'function') {
+      try {
+        rec.uninstall(this);
+      } catch (e) {
+        logError(`[ecs] extension "${rec.name}" uninstall failed`, e);
+      }
+    }
+    return true;
+  }
+
+  /** Check whether a runtime extension is attached.
+   * @param {Function|{ key?:any }} extension
+   * @returns {boolean}
+   */
+  hasExtension(extension) {
+    return this._extensions.has(extensionKey(extension, 'hasExtension'));
+  }
+
+  /** Return diagnostic records for attached runtime extensions.
+   * @returns {Array<{ name:string, key:any, extension:any, uninstallable:boolean }>}
+   */
+  extensions() {
+    return Array.from(this._extensions.values()).map(rec => ({
+      name: rec.name,
+      key: rec.key,
+      extension: rec.extension,
+      uninstallable: typeof rec.uninstall === 'function'
+    }));
+  }
+
   /** ===== Deferral ===== */
   /** Queue a deferred operation or function to run outside of tick context. @param {any} opOrFn */
   command(opOrFn) { this._cmd.push(opOrFn); return this; }
@@ -944,17 +1063,18 @@ export class WorldBuilder {
     return this;
   }
   install(installer) {
-    if (typeof installer !== 'function') throw new Error('install: installer must be a function');
+    if (!isExtensionLike(installer)) throw new Error('install: extension must be a function or extension object');
     this._installers.push(installer);
     return this;
   }
   onStrictError(fn) { this._strictHandlers.push(fn); return this; }
   useScripts(options = {}) {
     const scriptOptions = { ...(options || {}) };
-    const installer = (world) => installScriptsAPI(world, scriptOptions);
-    this._installers.push(installer);
+    const phase = scriptOptions.phase || PHASE_SCRIPTS;
+    this._installers.push(defineExtension(`scripts:${phase}`, (world) => installScriptsAPI(world, scriptOptions), {
+      key: Symbol.for(`ecs-js:scripts:${String(phase)}`)
+    }));
     if (scriptOptions.autoPhase !== false) {
-      const phase = scriptOptions.phase || PHASE_SCRIPTS;
       this.withPhases(phase);
     }
     return this;
@@ -970,7 +1090,7 @@ export class WorldBuilder {
       this._requiredPhases.forEach(ph => { if (!steps.includes(ph)) steps.push(ph); });
       if (steps.length) world.setScheduler(composeScheduler(...steps));
     }
-    for (const inst of this._installers) inst(world);
+    for (const inst of this._installers) world.install(inst);
     return world;
   }
 }

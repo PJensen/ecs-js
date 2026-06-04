@@ -30,6 +30,30 @@ export function defineComponent<T extends Record<string, any>>(name: string, def
 
 export function defineTag(name: string): Component<Record<string, never>> & { isTag: true };
 
+export type WorldExtensionCleanup = () => void;
+export type WorldExtensionInstaller = (world: World) => void | WorldExtensionCleanup;
+
+export interface WorldExtension {
+  key?: any;
+  name?: string;
+  install: WorldExtensionInstaller;
+}
+
+export type WorldExtensionInput = WorldExtension | WorldExtensionInstaller;
+
+export interface WorldExtensionRecord {
+  name: string;
+  key: any;
+  extension: WorldExtensionInput;
+  uninstallable: boolean;
+}
+
+export function defineExtension(
+  name: string,
+  installer: WorldExtensionInstaller,
+  options?: { key?: any }
+): WorldExtension & { key: any; name: string };
+
 export interface ComponentBuilder<T extends Record<string, any>> {
   defaults(values: Partial<T>): this;
   validate(fn: (value: T) => boolean): this;
@@ -134,6 +158,11 @@ export class World {
   emit(event: string, payload?: any): number;
   emit<T extends EcsEvent>(event: T): number;
 
+  install(extension: WorldExtensionInput): this;
+  uninstall(extension: WorldExtensionInput): boolean;
+  hasExtension(extension: WorldExtensionInput): boolean;
+  extensions(): WorldExtensionRecord[];
+
   script?(id: string, configure: ScriptConfigure): this;
   addScript?(entity: number, id: string, args?: any): this;
   removeScript?(entity: number): this;
@@ -154,7 +183,7 @@ export class WorldBuilder {
   withSchedulerFn(fn: (world: World, dt: number) => void): this;
   withPhases(...phases: string[]): this;
   system(fn: (world: World, dt: number) => void, phase?: string, opts?: { before?: Function[]; after?: Function[] }): this;
-  install(installer: (world: World) => void): this;
+  install(extension: WorldExtensionInput): this;
   onStrictError(handler: StrictHandler): this;
   useScripts(options?: { phase?: string; autoPhase?: boolean }): this;
   build(): World;

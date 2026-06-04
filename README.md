@@ -62,7 +62,7 @@ Each call to `world.tick(dt)` advances the simulation deterministically by one s
 During a tick, `world.add()` is immediately visible to later systems/phases, while `world.remove()` and `world.destroy()` still defer to the post-scheduler flush.
 For the rare helper that must synchronously strip a component or discard a temporary entity, use `world.removeImmediate()` / `world.destroyImmediate()` and document why; they bypass the safety rail.
 
-When you need to wire multiple phases, installers, or strict/debug tooling, reach for the fluent builder:
+When you need to wire multiple phases, extensions, or strict/debug tooling, reach for the fluent builder:
 
 ```js
 import { World, PHASE_SCRIPTS } from './index.js'
@@ -77,9 +77,50 @@ const world = World.create({ seed: 9 })
   .build()
 ```
 
-`World.create()` collects options, systems, installers, and scheduler steps before producing a world. Mix and match `.useMap()/.useSoA()`, `.withSchedulerFn(fn)`, `.install(world => { ... })`, or `.enableStrict()` to keep setup declarative without hiding the primitives. You can still register systems later via `world.system(fn, 'phase')`.
+`World.create()` collects options, systems, extensions, and scheduler steps before producing a world. Mix and match `.useMap()/.useSoA()`, `.withSchedulerFn(fn)`, `.install(extension)`, or `.enableStrict()` to keep setup declarative without hiding the primitives. You can still register systems later via `world.system(fn, 'phase')`.
 
 `useScripts({ phase: 'update' })` lets you co-locate the built-in script systems inside an existing phase; omit the option to leave them under the default `scripts` phase.
+
+---
+
+### World Extensions
+
+Extensions are runtime-only capabilities attached to a `World`. Use them for event listeners, adapters, diagnostics, virtuals, bridges, or other world-local behavior that should install once without ad hoc symbol guards.
+
+```js
+import { World, defineExtension } from './index.js'
+
+const debugLogging = defineExtension('debugLogging', world => {
+  const offDamage = world.on('damage', payload => {
+    console.log('damage', payload)
+  })
+
+  return () => {
+    offDamage()
+  }
+})
+
+const world = new World()
+
+world.install(debugLogging)
+world.install(debugLogging) // no-op
+
+console.log(world.extensions().map(x => x.name))
+
+world.uninstall(debugLogging)
+```
+
+The fluent builder uses the same lifecycle:
+
+```js
+const world = World.create()
+  .install(debugLogging)
+  .build()
+```
+
+For incremental migration, `world.install(functionExtension)` is also supported and is idempotent by function identity. Prefer `defineExtension(...)` for reusable modules because it gives the capability a stable diagnostic name and optional key.
+
+Extensions are not components and are not serialized. Loading a snapshot into an existing world does not remove installed extensions.
 
 ---
 
@@ -644,11 +685,13 @@ Add behavior to entities by attaching a ScriptRef that resolves to a small handl
 ### Quick start
 
 ```js
-import { World } from './core.js'
+import { World } from './index.js'
 import { composeScheduler } from './systems.js'
-import { installScriptsAPI, ScriptRef, ScriptMeta, PHASE_SCRIPTS } from './scripts.js'
+import { ScriptRef, ScriptMeta, PHASE_SCRIPTS } from './scripts.js'
 
-const world = installScriptsAPI(new World({ seed: 42 }))
+const world = World.create({ seed: 42 })
+  .useScripts()
+  .build()
 
 // Register a script factory under an id
 world.scripts.register('pulse', (world, eid, args) => {
@@ -679,6 +722,8 @@ world.tick(1); world.tick(1); world.tick(1) // emits once at step 3
 // Diagnostics (last thrown error, count of ticks, attach version)
 console.log(world.get(e, ScriptMeta))
 ```
+
+`installScriptsAPI(new World(...))` remains available for direct compatibility, but `World.create().useScripts()` routes through the shared extension lifecycle and is idempotent for the same phase.
 
 ### Fluent script registration & helpers
 
