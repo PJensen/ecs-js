@@ -18,6 +18,49 @@ import { mulberry32 } from './rng.js';
 const globalConsole = (typeof console !== 'undefined') ? console : null;
 const logError = (globalConsole && typeof globalConsole.error === 'function') ? globalConsole.error.bind(globalConsole) : () => {};
 
+/**
+ * Base class for concrete runtime events.
+ *
+ * Events are synchronous, runtime-only messages between producers and consumers.
+ * They are not components and are not included in world snapshots.
+ */
+export class EcsEvent {
+  constructor() {
+    if (new.target === EcsEvent) {
+      throw new Error('EcsEvent is abstract');
+    }
+  }
+
+  /**
+   * Human-readable event name for debugging/logging.
+   * Routing uses constructor identity, not this string.
+   */
+  static get eventName() {
+    return this.name;
+  }
+}
+
+function isEventClass(value) {
+  return typeof value === 'function' && (
+    value === EcsEvent ||
+    value.prototype instanceof EcsEvent
+  );
+}
+
+function isEventInstance(value) {
+  return value instanceof EcsEvent;
+}
+
+function eventKey(ref) {
+  if (typeof ref === 'string' && ref.length > 0) return ref;
+
+  if (isEventClass(ref) && ref !== EcsEvent) {
+    return ref;
+  }
+
+  throw new Error('event key must be a non-empty string event name or concrete EcsEvent class');
+}
+
 class WorldDebug {
   constructor(world) {
     this.world = world;
@@ -750,17 +793,46 @@ export class World {
   }
 
   /** ===== Events ===== */
-  /** Subscribe to a named event.
-   * @param {string} event
+  /** Subscribe to a string event or concrete EcsEvent class.
+   * @param {string|typeof EcsEvent} event
    * @param {(payload:any, world:World)=>void} fn
    * @returns {()=>void} unsubscribe
    */
-  on(event, fn) { (this._ev ||= new Map()); if (!this._ev.has(event)) this._ev.set(event, new Set()); this._ev.get(event).add(fn); return () => this.off(event, fn); }
-  /** Unsubscribe a listener. @param {string} event @param {(payload:any)=>void} fn */
-  off(event, fn) { const set = this._ev?.get(event); if (set) set.delete(fn); }
-  /** Emit an event to listeners. @param {string} event @param {any} payload @returns {number} count of listeners invoked */
+  on(event, fn) {
+    if (typeof fn !== 'function') throw new Error('on: listener must be a function');
+
+    const key = eventKey(event);
+
+    this._ev ||= new Map();
+    if (!this._ev.has(key)) this._ev.set(key, new Set());
+    this._ev.get(key).add(fn);
+
+    return () => this.off(event, fn);
+  }
+
+  /** Unsubscribe a listener. @param {string|typeof EcsEvent} event @param {(payload:any)=>void} fn */
+  off(event, fn) {
+    const key = eventKey(event);
+    const set = this._ev?.get(key);
+    if (set) set.delete(fn);
+  }
+
+  /** Emit an event to listeners. @param {string|EcsEvent} event @param {any} payload @returns {number} count of listeners invoked */
   emit(event, payload) {
-    const set = this._ev?.get(event);
+    if (isEventInstance(event)) {
+      return this._emitByKey(event.constructor, event);
+    }
+
+    if (typeof event === 'string') {
+      if (event.length === 0) throw new Error('emit: expected non-empty string event name or EcsEvent instance');
+      return this._emitByKey(event, payload);
+    }
+
+    throw new Error('emit: expected non-empty string event name or EcsEvent instance');
+  }
+
+  _emitByKey(key, payload) {
+    const set = this._ev?.get(key);
     if (!set) return 0;
     let n = 0;
     for (const f of set) {

@@ -69,6 +69,14 @@ export interface EventDisposer {
   (): void;
 }
 
+export abstract class EcsEvent {
+  protected constructor();
+  static readonly eventName: string;
+}
+
+export type EcsEventClass<T extends EcsEvent = EcsEvent> =
+  (abstract new (...args: any[]) => T) & { readonly eventName: string };
+
 export interface WorldDebug {
   enable(on?: boolean): this;
   inspect(entity: number): { id: number; alive: boolean; components: Record<string, any>; removed: string[] };
@@ -106,8 +114,8 @@ export class World {
   remove(id: number, component: Component<any>): boolean | null;
   removeImmediate(id: number, component: Component<any>): boolean;
 
-  query<T extends any[]>(...terms: [...ComponentTerm[], object?]): QueryResult<T>;
-  defineQuery<T extends any[]>(...terms: [...ComponentTerm[], object?]): QueryHandle<T>;
+  query<T extends any[]>(...terms: (ComponentTerm | object)[]): QueryResult<T>;
+  defineQuery<T extends any[]>(...terms: (ComponentTerm | object)[]): QueryHandle<T>;
 
   command(op: any): this;
   pendingOps(): any[];
@@ -119,9 +127,12 @@ export class World {
 
   enableDebug(on?: boolean): this;
 
-  on(event: string | symbol, handler: (payload: any, world: World) => void): EventDisposer;
-  off(event: string | symbol, handler: (payload: any, world: World) => void): void;
-  emit(event: string | symbol, payload?: any): number;
+  on(event: string, handler: (payload: any, world: World) => void): EventDisposer;
+  on<T extends EcsEvent>(event: EcsEventClass<T>, handler: (event: T, world: World) => void): EventDisposer;
+  off(event: string, handler: (payload: any, world: World) => void): void;
+  off<T extends EcsEvent>(event: EcsEventClass<T>, handler: (event: T, world: World) => void): void;
+  emit(event: string, payload?: any): number;
+  emit<T extends EcsEvent>(event: T): number;
 
   script?(id: string, configure: ScriptConfigure): this;
   addScript?(entity: number, id: string, args?: any): this;

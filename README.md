@@ -219,27 +219,57 @@ console.log(Systems.visualizeGraph({ phase: 'update' })) // DOT graph for quick 
 
 🛰️ Events, Messaging, & Routing
 
-The world includes a built-in event bus for lightweight signaling between systems or external logic.
+The world includes a synchronous event bus for lightweight runtime signaling between systems or external logic.
+
+String events remain supported for compatibility, adapters, demos, and script routing:
 
 ```js
-// Subscribe
 const unsubscribe = world.on('damage', (payload, world) => {
   console.log('damage event:', payload)
 })
 
-// Emit
 world.emit('damage', { id: 1, amount: 10 })
 
-// Unsubscribe
 unsubscribe()
 ```
 
+Concrete event classes are the preferred form for domain code:
 
-Events are synchronous and scoped per World.
+```js
+import { EcsEvent } from './core.js'
 
-Each listener receives (payload, world) arguments.
+class DamageApplied extends EcsEvent {
+  constructor({ id, amount }) {
+    super()
 
-Useful for decoupling input handlers, UI triggers, or cross-system notifications.
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('id must be a positive entity id')
+    }
+
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new Error('amount must be a non-negative number')
+    }
+
+    this.id = id
+    this.amount = amount
+
+    Object.freeze(this)
+  }
+}
+
+world.on(DamageApplied, (event, world) => {
+  console.log('damage applied:', event.id, event.amount)
+})
+
+world.emit(new DamageApplied({ id: 1, amount: 10 }))
+```
+
+Events are synchronous and scoped per `World`.
+
+String listeners receive `(payload, world)`.
+Concrete event listeners receive `(event, world)`.
+
+Events are ephemeral runtime messages. They are not components, snapshots never contain events, and durable state belongs in components.
 
 For large worlds, route events to specific entities via the script router adapter. Provide a route map that selects the entity IDs that should receive a handler call:
 

@@ -1,7 +1,7 @@
 // Run with: `deno test --allow-read tests/serialization.snapshots.test.mjs`
 import { assert, test } from './testlib.js';
 
-import { World, defineComponent, defineTag } from '../core.js';
+import { EcsEvent, World, defineComponent, defineTag } from '../core.js';
 import {
   serializeWorld,
   serializeEntities,
@@ -16,6 +16,8 @@ const Velocity = defineComponent('Velocity', { dx: 0, dy: 0 });
 const Health = defineComponent('Health', { value: 0 });
 const Label = defineComponent('Label', { text: '' });
 const Marker = defineTag('Marker');
+
+class SnapshotIgnoredEvent extends EcsEvent {}
 
 function setupWorld(seed = 1234) {
   const world = new World({ seed });
@@ -94,6 +96,17 @@ test('serializeWorld produces deterministic alive/meta data and respects filters
   assert.deepEqual(single.alive, [ids[0]]);
   assert.equal(single.comps.Position.length, 1);
   assert.equal(single.comps.Position[0][0], ids[0]);
+});
+
+test('runtime events are ephemeral and absent from world snapshots', () => {
+  const { world } = setupWorld();
+
+  world.emit(new SnapshotIgnoredEvent());
+  world.emit('snapshot:string-event', { ignored: true });
+
+  const snapshot = serializeWorld(world);
+
+  assert.equal(snapshot.events, undefined);
 });
 
 const Owner = defineComponent('Owner', { targetId: 0 });
