@@ -1,0 +1,7 @@
+.claude/settings.json
+.claude/agents/entire-search.md
+.codex/config.toml
+.codex/hooks.json
+.codex/agents/entire-search.toml
+.entire/.gitignore
+.entire/settings.json
