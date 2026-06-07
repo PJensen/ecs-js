@@ -54,6 +54,42 @@ export function defineExtension(
   options?: { key?: any }
 ): WorldExtension & { key: any; name: string };
 
+export interface WorldResourceOptions<T = any, Serialized = any> {
+  key?: any;
+  create?(world: World, resource: WorldResource<T, Serialized>): T;
+  reset?(value: T, world: World, resource: WorldResource<T, Serialized>): T | void;
+  dispose?(value: T, world: World, resource: WorldResource<T, Serialized>): void;
+  serialize?(value: T, world: World, resource: WorldResource<T, Serialized>): Serialized;
+  deserialize?(payload: Serialized, world: World, resource: WorldResource<T, Serialized>): T;
+  serializable?: boolean;
+}
+
+export interface WorldResource<T = any, Serialized = any> {
+  key: any;
+  name: string;
+  create(world: World, resource: WorldResource<T, Serialized>): T;
+  reset: ((value: T, world: World, resource: WorldResource<T, Serialized>) => T | void) | null;
+  dispose: ((value: T, world: World, resource: WorldResource<T, Serialized>) => void) | null;
+  serialize: ((value: T, world: World, resource: WorldResource<T, Serialized>) => Serialized) | null;
+  deserialize: ((payload: Serialized, world: World, resource: WorldResource<T, Serialized>) => T) | null;
+  serializable: boolean;
+}
+
+export interface WorldResourceRecord<T = any> {
+  name: string;
+  key: any;
+  resource: WorldResource<T>;
+  value: T;
+  serializable: boolean;
+  resettable: boolean;
+  disposable: boolean;
+}
+
+export function defineWorldResource<T = any, Serialized = any>(
+  name: string,
+  options?: WorldResourceOptions<T, Serialized>
+): WorldResource<T, Serialized>;
+
 export interface ComponentBuilder<T extends Record<string, any>> {
   defaults(values: Partial<T>): this;
   validate(fn: (value: T) => boolean): this;
@@ -105,6 +141,7 @@ export interface WorldDebug {
   enable(on?: boolean): this;
   inspect(entity: number): { id: number; alive: boolean; components: Record<string, any>; removed: string[] };
   forget(entity: number): this;
+  resources(): WorldResourceRecord[];
 }
 
 export class World {
@@ -162,6 +199,13 @@ export class World {
   uninstall(extension: WorldExtensionInput): boolean;
   hasExtension(extension: WorldExtensionInput): boolean;
   extensions(): WorldExtensionRecord[];
+
+  resource<T>(resource: WorldResource<T>): T;
+  hasResource(resource: WorldResource<any>): boolean;
+  setResource<T>(resource: WorldResource<T>, value: T): T;
+  resetResource<T>(resource: WorldResource<T>): T;
+  deleteResource(resource: WorldResource<any>): boolean;
+  resources(): WorldResourceRecord[];
 
   script?(id: string, configure: ScriptConfigure): this;
   addScript?(entity: number, id: string, args?: any): this;

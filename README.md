@@ -124,6 +124,38 @@ Extensions are not components and are not serialized. Loading a snapshot into an
 
 ---
 
+### World Resources
+
+Resources are named, world-local values owned by `World`. Use them for runtime queues, caches, virtual handles, extension-private data, host bridges, and other infrastructure that should not live on ad hoc `world[...]` properties.
+
+```js
+import { World, defineExtension, defineWorldResource } from './index.js'
+
+export const trapStepQueue = defineWorldResource('trap.stepQueue', {
+  create: () => [],
+  reset: queue => {
+    queue.length = 0
+  }
+})
+
+export const trapStepListeners = defineExtension('trap.stepListeners', world => {
+  return world.on('moved', event => {
+    world.resource(trapStepQueue).push(event)
+  })
+})
+
+const world = new World({ seed: 42 })
+world.install(trapStepListeners)
+
+console.log(world.resources().map(x => x.name))
+```
+
+Resource values are created lazily with `world.resource(def)`. You can also call `world.hasResource(def)`, `world.setResource(def, value)`, `world.resetResource(def)`, and `world.deleteResource(def)`. Reset and disposal behavior belongs on the resource definition, so cleanup is explicit and diagnostics can report what exists.
+
+Resources are runtime-only by default. A resource appears in snapshots only when its definition opts in with `serializable: true`; restoring that resource requires the target world to already know the definition or for `applySnapshot(..., { resources: [...] })` to receive it. Prefer singleton components for durable simulation facts that should be queried, saved, and inspected as part of the world model.
+
+---
+
 ### Components
 
 ```js
@@ -855,7 +887,7 @@ directly in the browser:
 
 | File                      | Purpose                                                   |
 | ------------------------- | --------------------------------------------------------- |
-| **core.js**               | World + builder, debug/logging, components, queries, query builder |
+| **core.js**               | World + builder, debug/logging, components, resources, queries, query builder |
 | **systems.js**            | System registry, fluent phase builder, composition        |
 | **hierarchy.js**          | Parent–child tree operations                              |
 | **serialization.js**      | Snapshot, registry, deserialization                       |
