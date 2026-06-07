@@ -6,6 +6,12 @@
  * registry-based component resolution, and append/replace application modes.
  */
 
+import {
+  applyResourceSnapshot,
+  normalizeResourceRegistry,
+  serializeResources
+} from './resources.js';
+
 /**
  * @typedef {import('./core.js').World} World
  * @typedef {import('./core.js').Component} Component
@@ -46,7 +52,7 @@ export function makeRegistry(...comps) {
 
 /** Serialize the entire world into a snapshot.
  * @param {World} world
- * @param {{ include?: string[]|Set<string>|string, exclude?: string[], pickEntity?:(id:number)=>boolean, note?:string, includeResources?:boolean }} [opts]
+ * @param {{ include?: string[]|Set<string>|string, exclude?: string[], pickEntity?:(id:number)=>boolean, note?:string, includeResources?: any[]|Set<any>|any }} [opts]
  * @returns {Snapshot}
  */
 export function serializeWorld(world, opts = {}) {
@@ -83,8 +89,8 @@ export function serializeWorld(world, opts = {}) {
   };
   const snapshot = { v: 1, meta, comps, alive };
 
-  if (opts.includeResources !== false) {
-    const resources = _serializeResources(world);
+  if (opts.includeResources != null) {
+    const resources = serializeResources(world, opts.includeResources);
     if (Object.keys(resources).length) snapshot.resources = resources;
   }
 
@@ -135,7 +141,7 @@ export function applySnapshot(world, data, registry, opts = {}) {
   const mode = opts.mode || 'replace'; // 'replace' | 'append'
   const mapNameToComp = _normalizeRegistry(registry);
   const remap = opts.remapId || null;
-  const mapNameToResource = _normalizeResourceRegistry(opts.resources, world);
+  const mapNameToResource = normalizeResourceRegistry(opts.resources, world);
 
   // Validate unknown components before mutating the world to avoid partial application.
   if (!opts.skipUnknown) {
@@ -204,7 +210,7 @@ export function applySnapshot(world, data, registry, opts = {}) {
         world.frame = Number.isFinite(f) ? (f | 0) : 0;
       }
     }
-    _applyResourceSnapshot(world, data.resources, mapNameToResource, {
+    applyResourceSnapshot(world, data.resources, mapNameToResource, {
       context: 'applySnapshot',
       skipUnknown: !!opts.skipUnknown
     });
@@ -219,59 +225,6 @@ function _normalizeInclude(val) { if (!val) return null; if (val instanceof Set)
 function _assertSnapshot(d) { if (!d || typeof d !== 'object' || d.v !== 1 || !d.comps || typeof d.comps !== 'object') throw new Error('snapshot: invalid format'); }
 /** @private */
 function _normalizeRegistry(reg) { if (!reg) throw new Error('registry required'); if (reg instanceof Map) return reg; const m = new Map(); for (const [k, v] of Object.entries(reg)) m.set(k, v); return m; }
-/** @private */
-function _normalizeResourceRegistry(reg, world) {
-  const m = new Map();
-  for (const resource of world?._resourceDefs?.values?.() || []) {
-    if (resource?.name) m.set(resource.name, resource);
-  }
-  for (const rec of world?._resources?.values?.() || []) {
-    if (rec?.resource?.name) m.set(rec.resource.name, rec.resource);
-  }
-  if (!reg) return m;
-  if (reg instanceof Map) {
-    for (const [name, resource] of reg) m.set(name, resource);
-    return m;
-  }
-  if (Array.isArray(reg)) {
-    for (const resource of reg) if (resource?.name) m.set(resource.name, resource);
-    return m;
-  }
-  for (const [name, resource] of Object.entries(reg)) m.set(name, resource);
-  return m;
-}
-/** @private */
-function _serializeResources(world) {
-  const out = {};
-  for (const rec of world.resources?.() || []) {
-    const resource = rec.resource;
-    if (resource?.serializable !== true) continue;
-    out[resource.name] = typeof resource.serialize === 'function'
-      ? resource.serialize(rec.value, world, resource)
-      : _clonePlain(rec.value);
-  }
-  return out;
-}
-/** @private */
-function _applyResourceSnapshot(world, resources, registry, opts = {}) {
-  if (!resources) return;
-  const context = opts.context || 'applySnapshot';
-  for (const [name, payload] of Object.entries(resources || {})) {
-    const resource = registry.get(name);
-    if (!resource) {
-      if (!opts.skipUnknown) throw new Error(`${context}: unknown resource '${name}'`);
-      continue;
-    }
-    if (resource.serializable !== true) {
-      throw new Error(`${context}: resource '${name}' is not serializable`);
-    }
-    const value = typeof resource.deserialize === 'function'
-      ? resource.deserialize(_clonePlain(payload), world, resource)
-      : _clonePlain(payload);
-    world.setResource(resource, value);
-  }
-}
-/** @private */
 function _clonePlain(x) {
   if (typeof structuredClone === 'function') {
     try { return structuredClone(x); } catch {}

@@ -104,7 +104,7 @@ test('runtime resources are omitted from snapshots and survive load/applySnapsho
   source.add(id, Marker, { value: 7 });
   source.resource(Queue).push('runtime-only');
 
-  const snapshot = serializeWorld(source);
+  const snapshot = serializeWorld(source, { includeResources: Queue });
   assert.equal(snapshot.resources, undefined);
 
   const loaded = new World({ seed: 12 });
@@ -133,7 +133,11 @@ test('serializable resources round-trip through serializeWorld and applySnapshot
   const source = new World({ seed: 21 });
   source.resource(Counter).value = 42;
 
-  const snapshot = serializeWorld(source);
+  const defaultSnapshot = serializeWorld(source);
+  assert.equal(defaultSnapshot.resources, undefined);
+  assert.throws(() => serializeWorld(source, { includeResources: true }), /name resource definitions explicitly/);
+
+  const snapshot = serializeWorld(source, { includeResources: Counter });
   assert.deepEqual(snapshot.resources, { 'test.counter': 42 });
 
   const restored = new World({ seed: 22 });
@@ -155,7 +159,7 @@ test('World.load restores serializable resources known to the target world', () 
 
   const target = new World({ seed: 32 });
   target.resource(Counter);
-  target.load(serializeWorld(source));
+  target.load(serializeWorld(source, { includeResources: Counter }));
 
   assert.deepEqual(target.resource(Counter), { value: 5 });
 });
@@ -168,7 +172,7 @@ test('unknown serializable resources are rejected unless skipped', () => {
 
   const source = new World({ seed: 41 });
   source.setResource(Counter, { value: 9 });
-  const snapshot = serializeWorld(source);
+  const snapshot = serializeWorld(source, { includeResources: Counter });
 
   assert.throws(() => applySnapshot(new World(), snapshot, makeRegistry()), /unknown resource/);
 

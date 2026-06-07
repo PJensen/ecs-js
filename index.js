@@ -2,6 +2,8 @@
 // Convenience barrel exports for the library
 
 export * from './core.js';
+export * from './extensions.js';
+export * from './resources.js';
 export * from './systems.js';
 export * from './hierarchy.js';
 export * from './serialization.js';

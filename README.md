@@ -88,7 +88,8 @@ const world = World.create({ seed: 9 })
 Extensions are runtime-only capabilities attached to a `World`. Use them for event listeners, adapters, diagnostics, virtuals, bridges, or other world-local behavior that should install once without ad hoc symbol guards.
 
 ```js
-import { World, defineExtension } from './index.js'
+import { World } from './core.js'
+import { defineExtension } from './extensions.js'
 
 const debugLogging = defineExtension('debugLogging', world => {
   const offDamage = world.on('damage', payload => {
@@ -129,7 +130,9 @@ Extensions are not components and are not serialized. Loading a snapshot into an
 Resources are named, world-local values owned by `World`. Use them for runtime queues, caches, virtual handles, extension-private data, host bridges, and other infrastructure that should not live on ad hoc `world[...]` properties.
 
 ```js
-import { World, defineExtension, defineWorldResource } from './index.js'
+import { World } from './core.js'
+import { defineExtension } from './extensions.js'
+import { defineWorldResource } from './resources.js'
 
 export const trapStepQueue = defineWorldResource('trap.stepQueue', {
   create: () => [],
@@ -152,7 +155,7 @@ console.log(world.resources().map(x => x.name))
 
 Resource values are created lazily with `world.resource(def)`. You can also call `world.hasResource(def)`, `world.setResource(def, value)`, `world.resetResource(def)`, and `world.deleteResource(def)`. Reset and disposal behavior belongs on the resource definition, so cleanup is explicit and diagnostics can report what exists.
 
-Resources are runtime-only by default. A resource appears in snapshots only when its definition opts in with `serializable: true`; restoring that resource requires the target world to already know the definition or for `applySnapshot(..., { resources: [...] })` to receive it. Prefer singleton components for durable simulation facts that should be queried, saved, and inspected as part of the world model.
+Resources are runtime-only by default. A resource appears in snapshots only when its definition opts in with `serializable: true` and the caller explicitly names that resource during capture, for example `serializeWorld(world, { includeResources: trapStepQueue })`. Restoring that resource requires the target world to already know the definition or for `applySnapshot(..., { resources: [...] })` to receive it. Prefer singleton components for durable simulation facts that should be queried, saved, and inspected as part of the world model.
 
 ---
 
@@ -887,7 +890,9 @@ directly in the browser:
 
 | File                      | Purpose                                                   |
 | ------------------------- | --------------------------------------------------------- |
-| **core.js**               | World + builder, debug/logging, components, resources, queries, query builder |
+| **core.js**               | World + builder, debug/logging, components, queries, query builder |
+| **extensions.js**         | Runtime extension definitions and World install/uninstall appendage |
+| **resources.js**          | World-local resource definitions, lifecycle appendage, snapshot helpers |
 | **systems.js**            | System registry, fluent phase builder, composition        |
 | **hierarchy.js**          | Parent–child tree operations                              |
 | **serialization.js**      | Snapshot, registry, deserialization                       |
