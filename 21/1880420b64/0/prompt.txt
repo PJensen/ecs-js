@@ -1,0 +1,6 @@
+# Files mentioned by the user:
+
+## Pasted text.txt: /home/pjensen/.codex/attachments/de7d63e5-9557-4fb8-ae98-501e4b896baa/pasted-text.txt
+
+## My request for Codex:
+build `resource` as a new first-class concept inside of `ecs-js` most all details have been outlined and accounted for. if you have any questions, do not hesitate to surface them at the end.
