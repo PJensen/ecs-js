@@ -1,0 +1,20 @@
+# Files mentioned by the user:
+
+## Pasted text.txt: /home/pjensen/.codex/attachments/de7d63e5-9557-4fb8-ae98-501e4b896baa/pasted-text.txt
+
+## My request for Codex:
+build `resource` as a new first-class concept inside of `ecs-js` most all details have been outlined and accounted for. if you have any questions, do not hesitate to surface them at the end.
+
+---
+
+ehhh --- didn't the memo say serialization should be LEAST used, and certainly NOT a default -- unless you can make a solid case against that. that was not what I read. Please cite the source material precisely. What made you think serialization was default: true -- that should be RARE --- think first.
+
+---
+
+it's crazy how severely I need to watch what you're doing. you went against the grain of a detailed description with alacrity and confidence.
+
+why did you do "all resources" serialization expectation was supposed to be at the singular resource level -- instead you went right to all resources. that was not anticipated.
+
+NOW: do we serioualy need to blow up `core.js` again -- can we not make this part of the existing file topology - instead every new concept is living inside core.js like a clown car.
+
+I would much rather see; resource and extensions as first-class appendages.
