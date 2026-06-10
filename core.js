@@ -289,16 +289,15 @@ export class World {
     try { this.scheduler(this, dt); }
     catch (e) { logError('[ecs] scheduler error', e); }
 
-    // Flush deferred ops (bounded)
+    // Flush deferred ops produced by the scheduler. Commands enqueued by
+    // command callbacks stay in the world's queue for the next tick.
     if (this._cmd.length) {
-      const cmds = this._cmd.slice(); this._cmd.length = 0;
-      const MAX = 1000;
-      const limit = Math.min(MAX, cmds.length);
+      const cmds = this._cmd;
+      this._cmd = [];
       const prev = this._inTick; this._inTick = false;
       try {
-        for (let i = 0; i < limit; i++) this._applyOp(cmds[i]);
+        for (let i = 0; i < cmds.length; i++) this._applyOp(cmds[i]);
       } finally { this._inTick = prev; }
-      if (cmds.length > limit) this._cmd.push(...cmds.slice(limit));
     }
 
     // Clear change marks

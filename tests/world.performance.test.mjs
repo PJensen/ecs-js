@@ -75,7 +75,7 @@ test('SoA store: create and query 5,000 entities', () => {
   assert.equal(count, 5000);
 });
 
-test('deferred op queue at MAX boundary (1001 destroys)', () => {
+test('deferred op queue drains scheduler work in one tick', () => {
   const world = new World();
   const entities = [];
   for (let i = 0; i < 1001; i++) {
@@ -87,13 +87,21 @@ test('deferred op queue at MAX boundary (1001 destroys)', () => {
     for (const e of entities) w.destroy(e);
   });
 
-  // First tick: scheduler queues 1001 destroys, flush processes MAX=1000
   world.tick(1);
-  assert.equal(world.alive.size, 1, 'exactly 1 entity should survive first flush');
+  assert.equal(world.alive.size, 0, 'all entities should be gone after one tick');
+  assert.equal(world.pendingOps().length, 0, 'deferred command queue should not retain historical work');
+});
 
-  // Second tick: remaining 1 destroy flushes
-  world.tick(1);
-  assert.equal(world.alive.size, 0, 'all entities should be gone after second tick');
+test('stable deferred command workload does not accumulate pending ops', () => {
+  const world = new World();
+  world.setScheduler((w) => {
+    for (let i = 0; i < 1200; i++) w.command(() => {});
+  });
+
+  for (let i = 0; i < 250; i++) {
+    world.tick(1);
+    assert.equal(world.pendingOps().length, 0, 'pending command queue should stay bounded under stable overload');
+  }
 });
 
 test('deep hierarchy: 100-level chain with destroySubtree', () => {
