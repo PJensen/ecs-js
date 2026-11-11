@@ -1,5 +1,5 @@
-# ECS.js 
-Entity–Component–System architecture for JavaScript
+# ecs-js — Deterministic JavaScript Entity Component System
+
 Zero dependencies. No build step. Deterministic, phase-agnostic, and caller-driven — your loop, your rules.
 
 Designed for two primary use cases: building simulations, and building agent-driven simulations where state must be stepped, inspected, and replayed deterministically. ⚙️🧠
@@ -8,7 +8,7 @@ Suitable for both discrete-event and real-time updates.
 
 `ecs-js` is a minimal, browser-friendly ECS core for any logic-driven simulation that demands determinism and composability — financial modelling, agent-based market systems, game logic, procedural tools, or interactive visualizations — especially when agents or external observers need transparent, step-based control.
 
-[Visit Built-in Demos](https://pjensen.github.io/ecs-js/)
+[Explore the ecs-js simulation demos](https://pjensen.github.io/ecs-js/)
 
 ---
 
