@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ecs-js Demo</title>
+  <title>ecs-js — Deterministic JavaScript Entity Component System</title>
+  <meta name="description" content="Build reproducible simulations with ecs-js, a zero-dependency JavaScript entity component system. Explore the API and run boids, fishery, and World3 demos in your browser." />
+  <link rel="canonical" href="https://pjensen.github.io/ecs-js/" />
   <style>
     :root {
       color-scheme: dark;
@@ -97,15 +99,16 @@
 <body>
   <div class="page">
     <header>
-      <h1>ECS-js</h1>
+      <h1>ecs-js</h1>
       <p class="tagline">
-        Zero-dependency, browser-friendly ECS for simulations, roguelikes, and agent-driven worlds.
-        Deterministic, phase-agnostic, and caller-controlled — your loop, your rules.
+        ecs-js is a zero-dependency JavaScript entity component system (ECS) for games and simulations.
+        Give a world a seed, choose the order its systems run, and advance it one tick at a time.
       </p>
     </header>
     <nav aria-label="Demo table of contents">
       <ul>
-        <li><a href="#base-demo">Base demo (logs below)</a></li>
+        <li><a href="https://github.com/PJensen/ecs-js#readme">ecs-js API and getting started guide</a></li>
+        <li><a href="#base-demo">Core API demo</a></li>
         <li><a href="https://pjensen.github.io/JSHack/">JS-Hack</a></li>
         <li><a href="./demo/fishery-collapse.html">Fishery collapse demo</a></li>
         <li><a href="./demo/food-web.html">Ecosystem food-web sandbox</a></li>
@@ -115,8 +118,8 @@
     </nav>
     <main>
       <section id="base-demo">
-        <h2>Base demo</h2>
-        <p>The base ecs-js demo runs below; scroll for its output.</p>
+        <h2>Core API demo</h2>
+        <p>The log below shows how ecs-js creates a seeded world, attaches components to entities, and runs systems in order.</p>
       </section>
       <pre id="out">Loading…</pre>
     </main>
